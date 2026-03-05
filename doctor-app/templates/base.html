@@ -52,6 +52,26 @@
   {% endif %}
   {% endwith %}
 
+  <!-- Update notification banner -->
+  <div id="updateBanner" class="alert alert-info alert-dismissible fade d-none" role="alert"
+       style="border-right:4px solid #0d6efd; background:#e8f4fd;">
+    <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+      <div>
+        <strong>&#128260; עדכון זמין!</strong>
+        <span id="updateVersionText"></span>
+      </div>
+      <div class="d-flex gap-2">
+        <button id="updateBtn" class="btn btn-primary btn-sm">
+          <span id="updateBtnLabel">&#11015; עדכן עכשיו</span>
+          <span id="updateBtnLoading" class="d-none">
+            <span class="spinner-border spinner-border-sm me-1"></span>מוריד...
+          </span>
+        </button>
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+      </div>
+    </div>
+  </div>
+
   {% block content %}{% endblock %}
 
 </div>
@@ -73,6 +93,44 @@ document.addEventListener('contextmenu', function (e) {
   e.preventDefault();
 });
 </script>
+{% if session.authenticated %}
+<script>
+// Auto-update: check for available updates
+(function() {
+  fetch('/api/update-check').then(function(r) { return r.json(); }).then(function(data) {
+    if (!data.available) return;
+    var banner = document.getElementById('updateBanner');
+    document.getElementById('updateVersionText').textContent =
+      'גרסה ' + data.version + ' זמינה להורדה';
+    banner.classList.remove('d-none');
+    banner.classList.add('show');
+  }).catch(function() {});
+
+  var btn = document.getElementById('updateBtn');
+  if (btn) btn.addEventListener('click', function() {
+    if (!confirm('העדכון יגבה את הנתונים, יתקין את הגרסה החדשה ויפעיל מחדש.\nלהמשיך?')) return;
+    btn.disabled = true;
+    document.getElementById('updateBtnLabel').classList.add('d-none');
+    document.getElementById('updateBtnLoading').classList.remove('d-none');
+    fetch('/update/install', {method: 'POST'}).then(function(r) { return r.json(); }).then(function(data) {
+      if (data.ok) {
+        document.getElementById('updateBtnLoading').innerHTML =
+          '<span class="spinner-border spinner-border-sm me-1"></span>מתקין... התוכנה תיפתח מחדש';
+      } else {
+        alert(data.error || 'שגיאה בעדכון');
+        btn.disabled = false;
+        document.getElementById('updateBtnLabel').classList.remove('d-none');
+        document.getElementById('updateBtnLoading').classList.add('d-none');
+      }
+    }).catch(function() {
+      btn.disabled = false;
+      document.getElementById('updateBtnLabel').classList.remove('d-none');
+      document.getElementById('updateBtnLoading').classList.add('d-none');
+    });
+  });
+})();
+</script>
+{% endif %}
 {% block scripts %}{% endblock %}
 </body>
 </html>

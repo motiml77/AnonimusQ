@@ -246,6 +246,9 @@ PrivilegesRequired=lowest
 ArchitecturesInstallIn64BitMode=x64compatible
 ; No admin required – installs to user's AppData
 PrivilegesRequiredOverridesAllowed=dialog
+; Auto-update support: close running instance and restart after install
+CloseApplications=yes
+RestartApplications=yes
 
 [Languages]
 Name: "hebrew"; MessagesFile: "compiler:Languages\\Hebrew.isl"

@@ -232,6 +232,23 @@
     </table>
   </div>
 </div>
+
+<!-- ============ Section 6: App Version & Updates ============ -->
+<div class="card mb-4 shadow-sm border-secondary">
+  <div class="card-header fw-bold bg-light">&#9881; גרסה ועדכונים</div>
+  <div class="card-body">
+    <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+      <div>
+        <span class="fw-semibold">גרסה נוכחית:</span>
+        <span id="appVersionLabel" class="badge bg-secondary fs-6">טוען...</span>
+        <span id="updateStatus" class="text-muted small me-2"></span>
+      </div>
+      <button id="checkUpdateBtn" class="btn btn-outline-primary btn-sm" onclick="checkForUpdates()">
+        &#128269; בדוק עדכונים
+      </button>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -242,6 +259,38 @@ function copyPatientLink() {
   navigator.clipboard.writeText(el.value)
     .then(() => alert('הקישור הועתק!'))
     .catch(() => el.select());
+}
+
+// Load app version
+fetch('/api/app-version').then(r => r.json()).then(data => {
+  document.getElementById('appVersionLabel').textContent = 'v' + data.version;
+}).catch(() => {});
+
+// Check for updates button
+function checkForUpdates() {
+  var btn = document.getElementById('checkUpdateBtn');
+  var status = document.getElementById('updateStatus');
+  btn.disabled = true;
+  btn.textContent = 'בודק...';
+  fetch('/update/check-now', {method: 'POST'}).then(r => r.json()).then(data => {
+    btn.disabled = false;
+    btn.innerHTML = '&#128269; בדוק עדכונים';
+    if (!data.ok) {
+      status.textContent = data.error;
+      status.className = 'text-danger small me-2';
+    } else if (data.available) {
+      status.textContent = 'גרסה ' + data.version + ' זמינה!';
+      status.className = 'text-primary fw-bold small me-2';
+    } else {
+      status.textContent = data.message || 'הגרסה מעודכנת';
+      status.className = 'text-success small me-2';
+    }
+  }).catch(() => {
+    btn.disabled = false;
+    btn.innerHTML = '&#128269; בדוק עדכונים';
+    status.textContent = 'שגיאת חיבור';
+    status.className = 'text-danger small me-2';
+  });
 }
 </script>
 {% endblock %}

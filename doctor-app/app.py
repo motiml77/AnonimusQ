@@ -8,7 +8,10 @@ import sys
 import threading
 import time
 import zipfile
+from datetime import datetime
 from functools import wraps
+
+import requests
 
 from flask import (
     Flask,
@@ -26,6 +29,21 @@ import db
 import crypto_utils
 import firebase_auth
 import firebase_sync
+
+# ========================
+# App version
+# ========================
+APP_VERSION = "2.0.0"
+
+# ========================
+# Auto-update state
+# ========================
+_update_info = {
+    "available": False,
+    "version": "",
+    "download_url": "",
+    "release_notes": "",
+}
 
 # ========================
 # App setup
@@ -1724,6 +1742,93 @@ def appointments_reschedule(appt_id):
 
 
 # ========================
+# Routes – Auto-update
+# ========================
+
+@app.route("/api/update-check")
+@login_required
+def api_update_check():
+    """Return current update status (called by frontend JS)."""
+    return jsonify(_update_info)
+
+
+@app.route("/api/app-version")
+@login_required
+def api_app_version():
+    """Return current app version."""
+    return jsonify({"version": APP_VERSION})
+
+
+@app.route("/update/install", methods=["POST"])
+@login_required
+def update_install():
+    """Download and install the latest update."""
+    if not _update_info["available"] or not _update_info["download_url"]:
+        return jsonify({"ok": False, "error": "אין עדכון זמין"})
+
+    try:
+        # 1. Force backup before update
+        db.auto_backup()
+
+        # 2. Download installer to temp
+        url = _update_info["download_url"]
+        tmp_path = os.path.join(
+            os.environ.get("TEMP", os.path.expanduser("~")),
+            "AnonimousQ-Update.exe",
+        )
+        resp = requests.get(url, stream=True, timeout=300)
+        resp.raise_for_status()
+        with open(tmp_path, "wb") as f:
+            for chunk in resp.iter_content(8192):
+                f.write(chunk)
+
+        # 3. Launch installer in silent mode and exit
+        subprocess.Popen([
+            tmp_path, "/SILENT", "/CLOSEAPPLICATIONS", "/RESTARTAPPLICATIONS",
+        ])
+
+        # 4. Give installer time to start, then exit current app
+        threading.Timer(2.0, lambda: os._exit(0)).start()
+        return jsonify({"ok": True, "message": "מעדכן... התוכנה תיסגר ותיפתח מחדש"})
+
+    except requests.ConnectionError:
+        return jsonify({"ok": False, "error": "אין חיבור לאינטרנט"})
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"שגיאת עדכון: {e}"})
+
+
+@app.route("/update/check-now", methods=["POST"])
+@login_required
+def update_check_now():
+    """Force an immediate update check (ignores daily limit)."""
+    try:
+        resp = requests.get(
+            _GITHUB_RELEASES_URL, timeout=15,
+            headers={"Accept": "application/vnd.github.v3+json"},
+        )
+        if resp.status_code != 200:
+            return jsonify({"ok": False, "error": "לא ניתן לבדוק עדכונים כעת"})
+
+        data = resp.json()
+        latest = data.get("tag_name", "").lstrip("v")
+        if latest and _is_newer(latest, APP_VERSION):
+            for asset in data.get("assets", []):
+                if asset["name"].lower().endswith(".exe"):
+                    _update_info["available"] = True
+                    _update_info["version"] = latest
+                    _update_info["download_url"] = asset["browser_download_url"]
+                    _update_info["release_notes"] = data.get("body", "")
+                    return jsonify({"ok": True, "available": True, "version": latest})
+            return jsonify({"ok": True, "available": False})
+        return jsonify({"ok": True, "available": False,
+                        "message": f"הגרסה שלך ({APP_VERSION}) מעודכנת"})
+    except requests.ConnectionError:
+        return jsonify({"ok": False, "error": "אין חיבור לאינטרנט"})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+# ========================
 # Process cleanup helpers
 # ========================
 
@@ -1861,6 +1966,68 @@ def _open_app_window():
 
 
 # ========================
+# Auto-update checker
+# ========================
+
+_APPDATA_DIR = os.path.join(
+    os.environ.get("APPDATA", os.path.expanduser("~")), "AnonimousQ"
+)
+_UPDATE_CHECK_FILE = os.path.join(_APPDATA_DIR, "last_update_check.txt")
+_GITHUB_RELEASES_URL = "https://api.github.com/repos/motiml77/AnonimusQ/releases/latest"
+
+
+def _is_newer(remote: str, local: str) -> bool:
+    """Compare semantic versions: '2.1.0' > '2.0.0'."""
+    try:
+        r = tuple(int(x) for x in remote.split("."))
+        l = tuple(int(x) for x in local.split("."))
+        return r > l
+    except Exception:
+        return False
+
+
+def _check_for_updates():
+    """Background thread: check GitHub Releases for a new version once per day."""
+    time.sleep(30)  # let app fully start
+    while True:
+        try:
+            # Already checked today?
+            today = datetime.now().strftime("%Y-%m-%d")
+            if os.path.exists(_UPDATE_CHECK_FILE):
+                last = open(_UPDATE_CHECK_FILE).read().strip()
+                if last == today:
+                    time.sleep(3600)
+                    continue
+
+            resp = requests.get(
+                _GITHUB_RELEASES_URL, timeout=15,
+                headers={"Accept": "application/vnd.github.v3+json"},
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                latest = data.get("tag_name", "").lstrip("v")
+                if latest and _is_newer(latest, APP_VERSION):
+                    for asset in data.get("assets", []):
+                        if asset["name"].lower().endswith(".exe"):
+                            _update_info["available"] = True
+                            _update_info["version"] = latest
+                            _update_info["download_url"] = asset["browser_download_url"]
+                            _update_info["release_notes"] = data.get("body", "")
+                            print(f"  [Update] גרסה {latest} זמינה להורדה")
+                            break
+
+            # Mark today as checked
+            os.makedirs(_APPDATA_DIR, exist_ok=True)
+            with open(_UPDATE_CHECK_FILE, "w") as f:
+                f.write(today)
+
+        except Exception:
+            pass
+
+        time.sleep(3600)  # re-check every hour (date guard prevents API spam)
+
+
+# ========================
 # Background sync queue flusher
 # ========================
 
@@ -1914,6 +2081,9 @@ if __name__ == "__main__":
 
     # Background sync queue flusher — retries failed Firebase writes
     threading.Thread(target=_flush_sync_queue, daemon=True).start()
+
+    # Background update checker — checks GitHub once per day
+    threading.Thread(target=_check_for_updates, daemon=True).start()
 
     # Flask in background daemon thread
     flask_thread = threading.Thread(
