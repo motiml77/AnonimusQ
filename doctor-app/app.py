@@ -1,6 +1,7 @@
 import csv
 import io
 import json
+import logging
 import os
 import secrets
 import subprocess
@@ -10,6 +11,27 @@ import time
 import zipfile
 from datetime import datetime
 from functools import wraps
+
+# ========================
+# Crash-safe logging for --noconsole mode (PyInstaller)
+# ========================
+_LOG_DIR = os.path.join(
+    os.environ.get("APPDATA", os.path.expanduser("~")), "AnonimousQ"
+)
+os.makedirs(_LOG_DIR, exist_ok=True)
+_LOG_FILE = os.path.join(_LOG_DIR, "app.log")
+
+# Redirect stdout/stderr to file when frozen (no console)
+if getattr(sys, "frozen", False) and sys.stdout is None:
+    _log_fh = open(_LOG_FILE, "a", encoding="utf-8")
+    sys.stdout = _log_fh
+    sys.stderr = _log_fh
+
+logging.basicConfig(
+    filename=_LOG_FILE,
+    level=logging.ERROR,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+)
 
 import requests
 
@@ -33,7 +55,7 @@ import firebase_sync
 # ========================
 # App version
 # ========================
-APP_VERSION = "2.1.0"
+APP_VERSION = "2.2.0"
 
 # ========================
 # Auto-update state
@@ -1943,7 +1965,16 @@ def _open_app_window():
         f"--window-position={pos_x},{pos_y}",
         "--no-first-run",
         "--disable-extensions",
+        "--disable-background-mode",
+        "--disable-backgrounding-occluded-windows",
+        "--disable-renderer-backgrounding",
     ]
+
+    # Suppress any helper-process console windows
+    _si = subprocess.STARTUPINFO()
+    _si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    _si.wShowWindow = 1  # SW_SHOWNORMAL for main window
+    _creation = subprocess.CREATE_NO_WINDOW  # suppress child console windows
 
     candidates = [
         # Edge (always present on Windows 10/11)
@@ -1956,13 +1987,27 @@ def _open_app_window():
 
     for browser in candidates:
         if os.path.exists(browser):
-            proc = subprocess.Popen([browser] + args)
+            proc = subprocess.Popen(
+                [browser] + args,
+                startupinfo=_si,
+                creationflags=_creation,
+            )
             print(f"  פתיחת חלון תוכנה דרך: {os.path.basename(browser)}")
-            return proc
+            # Wait briefly to see if the process stays alive.
+            # If Edge/Chrome is already running it may "delegate" to
+            # the existing instance and exit immediately — in that case
+            # we fall through to the default-browser fallback below.
+            try:
+                proc.wait(timeout=5)
+                # Process exited within 5 s → delegation happened
+                print("  הדפדפן העביר לחלון קיים – פותח בדפדפן ברירת מחדל")
+            except subprocess.TimeoutExpired:
+                # Still running after 5 s → it's our own process, track it
+                return proc
 
-    # Last resort – regular browser tab
+    # Fallback – open in default browser and keep alive via Flask thread
     import webbrowser
-    print("  Edge/Chrome לא נמצאו – פותח בדפדפן ברירת מחדל")
+    print("  פותח בדפדפן ברירת מחדל")
     webbrowser.open(url)
     return None
 
@@ -2061,57 +2106,73 @@ def _flush_sync_queue():
 # ========================
 
 if __name__ == "__main__":
-    db.init_db()
-    db.auto_backup()          # daily backup to Documents\AnonimousQ Backup\
-
-    # Initialize Firebase Admin SDK from embedded service account
-    fb_init = firebase_sync.init_embedded()
-    if fb_init["ok"]:
-        print("  Firebase Admin SDK initialized")
-    else:
-        print(f"  Firebase init: {fb_init.get('error', 'failed')}")
-
-    # Restore username for Firebase namespacing even before login
-    saved_username = db.get_username()
-    if saved_username:
-        firebase_sync.set_username(saved_username)
-
-    print("=" * 40)
-    print("  AnonimousQ - Doctor App")
-    print("  סגור את חלון הדפדפן כדי לעצור את התוכנה")
-    print("=" * 40)
-
-    # Background sync queue flusher — retries failed Firebase writes
-    threading.Thread(target=_flush_sync_queue, daemon=True).start()
-
-    # Background update checker — checks GitHub once per day
-    threading.Thread(target=_check_for_updates, daemon=True).start()
-
-    # Flask in background daemon thread
-    flask_thread = threading.Thread(
-        target=lambda: app.run(
-            debug=False, port=5000, host="127.0.0.1", use_reloader=False
-        ),
-        daemon=True,
-    )
-    flask_thread.start()
-    time.sleep(1.5)  # let Flask bind the port
-
-    browser_proc = _open_app_window()
-
-    # Assign browser to Job Object so all its child processes
-    # (GPU, renderer, network) die when Python exits
-    _browser_job = _setup_browser_job(browser_proc)
-
     try:
-        if browser_proc:
-            browser_proc.wait()
-            # Browser closed — terminate everything
-            print("\n  חלון הדפדפן נסגר – מכבה את השרת...")
+        db.init_db()
+        db.auto_backup()          # daily backup to Documents\AnonimousQ Backup\
+
+        # Initialize Firebase Admin SDK from embedded service account
+        fb_init = firebase_sync.init_embedded()
+        if fb_init["ok"]:
+            print("  Firebase Admin SDK initialized")
         else:
-            # No browser process to track – keep alive until console closed
-            flask_thread.join()
-    except KeyboardInterrupt:
-        pass
+            print(f"  Firebase init: {fb_init.get('error', 'failed')}")
+
+        # Restore username for Firebase namespacing even before login
+        saved_username = db.get_username()
+        if saved_username:
+            firebase_sync.set_username(saved_username)
+
+        print("=" * 40)
+        print("  AnonimousQ - Doctor App")
+        print("  סגור את חלון הדפדפן כדי לעצור את התוכנה")
+        print("=" * 40)
+
+        # Background sync queue flusher — retries failed Firebase writes
+        threading.Thread(target=_flush_sync_queue, daemon=True).start()
+
+        # Background update checker — checks GitHub once per day
+        threading.Thread(target=_check_for_updates, daemon=True).start()
+
+        # Flask in background daemon thread
+        flask_thread = threading.Thread(
+            target=lambda: app.run(
+                debug=False, port=5000, host="127.0.0.1", use_reloader=False
+            ),
+            daemon=True,
+        )
+        flask_thread.start()
+        time.sleep(1.0)  # let Flask bind the port
+
+        # Warm up Flask so first page load is instant
+        try:
+            requests.get("http://127.0.0.1:5000/login", timeout=3)
+        except Exception:
+            pass
+
+        browser_proc = _open_app_window()
+
+        # Assign browser to Job Object so all its child processes
+        # (GPU, renderer, network) die when Python exits
+        _browser_job = _setup_browser_job(browser_proc)
+
+        try:
+            if browser_proc:
+                browser_proc.wait()
+                # Browser closed — terminate everything
+                print("\n  חלון הדפדפן נסגר – מכבה את השרת...")
+            else:
+                # No browser process to track – keep alive until console closed
+                flask_thread.join()
+        except KeyboardInterrupt:
+            pass
+
+    except Exception:
+        logging.exception("FATAL: App failed to start")
+        # Also write to a crash file for easy discovery
+        crash_file = os.path.join(_LOG_DIR, "crash.log")
+        with open(crash_file, "w", encoding="utf-8") as f:
+            import traceback
+            f.write(f"Crash at {datetime.now()}\n")
+            traceback.print_exc(file=f)
 
     os._exit(0)

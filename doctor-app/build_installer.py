@@ -17,7 +17,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DIST_DIR = os.path.join(BASE_DIR, "dist")
 BUILD_DIR = os.path.join(BASE_DIR, "build")
 APP_NAME = "AnonimousQ"
-APP_VERSION = "2.1.0"
+APP_VERSION = "2.2.0"
 ICON_PATH = os.path.join(BASE_DIR, "static", "img", "favicon.ico")
 
 
