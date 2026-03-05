@@ -3,64 +3,427 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>לוח תורים</title>
+  <title>לוח תורים – ClinicTor</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css" />
   <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.css" rel="stylesheet" />
+  <style>
+    /* ===== Calendar Page Specific ===== */
+
+    /* Header user area */
+    .header-user {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .user-avatar {
+      width: 40px;
+      height: 40px;
+      background: #e2e8f0;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .user-avatar svg { color: #94a3b8; }
+    .user-info {
+      display: flex;
+      flex-direction: column;
+    }
+    .user-name {
+      font-weight: 600;
+      font-size: 0.92rem;
+      color: #0a2540;
+    }
+    .user-role {
+      font-size: 0.75rem;
+      color: #94a3b8;
+    }
+
+    /* Main content wrapper */
+    .main-content {
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+
+    /* Sidebar */
+    .sidebar {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .sidebar-card {
+      background: #fff;
+      border-radius: 16px;
+      padding: 24px;
+      box-shadow: 0 1px 3px rgba(0,0,0,.06), 0 2px 12px rgba(0,0,0,.04);
+    }
+
+    .section-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+
+    .section-icon {
+      width: 32px;
+      height: 32px;
+      background: #e6f9ee;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .section-icon svg {
+      width: 18px;
+      height: 18px;
+      color: #2bb66e;
+    }
+
+    .section-header h3 {
+      font-size: 1rem;
+      font-weight: 700;
+      color: #0a2540;
+      margin: 0;
+    }
+
+    /* Search slot link */
+    .search-slot-link {
+      display: block;
+      color: #2bb66e;
+      font-size: 0.85rem;
+      font-weight: 500;
+      text-decoration: none;
+      margin-top: 4px;
+    }
+    .search-slot-link:hover { text-decoration: underline; }
+
+    /* Empty state card below calendar */
+    .empty-state-card {
+      background: #fff;
+      border-radius: 16px;
+      padding: 40px 24px;
+      box-shadow: 0 1px 3px rgba(0,0,0,.06), 0 2px 12px rgba(0,0,0,.04);
+      text-align: center;
+    }
+    .empty-state-icon {
+      width: 56px;
+      height: 56px;
+      background: #f1f5f9;
+      border-radius: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 16px;
+    }
+    .empty-state-icon svg {
+      width: 28px;
+      height: 28px;
+      color: #94a3b8;
+    }
+    .empty-state-card h3 {
+      font-size: 1.05rem;
+      font-weight: 700;
+      color: #0a2540;
+      margin: 0 0 8px 0;
+    }
+    .empty-state-card p {
+      font-size: 0.88rem;
+      color: #64748b;
+      margin: 0;
+    }
+
+    /* Payment methods grid */
+    .payment-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    .payment-method-card {
+      background: #fff;
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+      padding: 16px 12px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      cursor: default;
+      transition: border-color 0.2s;
+    }
+    .payment-method-card:hover {
+      border-color: #2bb66e;
+    }
+    .pm-icon {
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 0.85rem;
+    }
+    .pm-icon-bit { background: #dbeafe; color: #2563eb; }
+    .pm-icon-paybox { background: #e6f9ee; color: #2bb66e; }
+    .pm-icon-credit { background: #dbeafe; color: #3b82f6; }
+    .pm-icon-cash { background: #e6f9ee; color: #2bb66e; }
+    .pm-label {
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: #0a2540;
+    }
+
+    /* Support banner */
+    .support-banner {
+      max-width: 1200px;
+      margin: 0 auto 28px;
+      padding: 0 32px;
+    }
+    .support-banner-inner {
+      background: linear-gradient(135deg, #2bb66e 0%, #20a35e 100%);
+      border-radius: 16px;
+      padding: 24px 32px;
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      color: #fff;
+    }
+    .support-icon {
+      width: 56px;
+      height: 56px;
+      background: rgba(255,255,255,0.2);
+      border-radius: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .support-icon svg {
+      width: 28px;
+      height: 28px;
+      color: #fff;
+    }
+    .support-text {
+      flex: 1;
+    }
+    .support-text h4 {
+      font-size: 1.05rem;
+      font-weight: 700;
+      margin: 0 0 4px 0;
+    }
+    .support-text p {
+      font-size: 0.85rem;
+      opacity: 0.9;
+      margin: 0;
+    }
+    .support-call-btn {
+      background: #fff;
+      color: #2bb66e;
+      border: none;
+      border-radius: 8px;
+      padding: 10px 20px;
+      font-size: 0.88rem;
+      font-weight: 700;
+      cursor: pointer;
+      white-space: nowrap;
+      text-decoration: none;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .support-call-btn:hover {
+      background: #f0fdf4;
+    }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      .calendar-main {
+        grid-template-columns: 1fr;
+        padding: 0 16px;
+      }
+      .support-banner { padding: 0 16px; }
+      .support-banner-inner {
+        flex-direction: column;
+        text-align: center;
+        padding: 20px;
+      }
+      .header-user { display: none; }
+    }
+  </style>
 </head>
 <body>
   <header class="app-header">
     <div class="header-content">
       <div class="header-logo">
-        <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
-          <line x1="16" y1="2" x2="16" y2="6"/>
-          <line x1="8" y1="2" x2="8" y2="6"/>
-          <line x1="3" y1="10" x2="21" y2="10"/>
-        </svg>
-        <span>לוח תורים</span>
+        <img src="clinicTor.png" alt="ClinicTor" />
       </div>
-      <button id="logout-btn" class="btn-ghost">יציאה</button>
+      <div class="header-user">
+        <div class="user-avatar">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+            <circle cx="12" cy="7" r="4"/>
+          </svg>
+        </div>
+        <div class="user-info">
+          <span class="user-name" id="user-name">מטופל</span>
+          <span class="user-role">מטופל רשום</span>
+        </div>
+      </div>
+      <button id="logout-btn" class="btn-ghost">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+          <polyline points="16 17 21 12 16 7"/>
+          <line x1="21" y1="12" x2="9" y2="12"/>
+        </svg>
+        התנתק
+      </button>
     </div>
   </header>
 
   <!-- Loading overlay -->
   <div id="loading-overlay" style="position:fixed;inset:0;background:#fff;z-index:9999;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;">
-    <div style="width:48px;height:48px;border:4px solid #e0e0e0;border-top-color:#4CAF50;border-radius:50%;animation:spin .8s linear infinite;"></div>
+    <div style="width:48px;height:48px;border:4px solid #e0e0e0;border-top-color:#2bb66e;border-radius:50%;animation:spin .8s linear infinite;"></div>
     <div style="color:#666;font-size:.95rem;">טוען נתונים...</div>
   </div>
-  <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
 
   <main class="calendar-main">
-    <section class="my-appointments-section">
-      <div id="payment-info"></div>
-      <h2>התורים שלי</h2>
-      <div id="my-appointments-list">
-        <p class="loading-text">טוען תורים...</p>
+    <!-- Main Content (right side in RTL) -->
+    <div class="main-content">
+      <section class="calendar-section">
+        <h2>קביעת תור חדש</h2>
+        <p class="calendar-hint">לחץ על תאריך לראות שעות פנויות</p>
+        <div id="calendar"></div>
+      </section>
+
+      <!-- Empty state card -->
+      <div class="empty-state-card" id="empty-state-card">
+        <div class="empty-state-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+            <line x1="16" y1="2" x2="16" y2="6"/>
+            <line x1="8" y1="2" x2="8" y2="6"/>
+            <line x1="3" y1="10" x2="21" y2="10"/>
+          </svg>
+        </div>
+        <h3>אין לך תורים קבועים כרגע</h3>
+        <p>בחר תאריך בלוח השנה כדי להתחיל לקבוע תור חדש עם המומחים שלנו.</p>
+      </div>
+    </div>
+
+    <!-- Sidebar (left side in RTL) -->
+    <div class="sidebar">
+      <!-- My Appointments -->
+      <div class="sidebar-card">
+        <div id="payment-info"></div>
+        <div class="section-header">
+          <div class="section-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>
+              <rect x="8" y="2" width="8" height="4" rx="1" ry="1"/>
+            </svg>
+          </div>
+          <h3>התורים שלי</h3>
+        </div>
+        <div id="my-appointments-list">
+          <p class="loading-text">טוען תורים...</p>
+        </div>
       </div>
 
-      <h2 style="margin-top:28px;">היסטוריית ביקורים</h2>
-      <div id="history-list">
-        <p class="loading-text">טוען היסטוריה...</p>
+      <!-- Visit History -->
+      <div class="sidebar-card">
+        <div class="section-header">
+          <div class="section-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"/>
+              <polyline points="12 6 12 12 16 14"/>
+            </svg>
+          </div>
+          <h3>היסטוריית ביקורים</h3>
+        </div>
+        <div id="history-list">
+          <p class="loading-text">טוען היסטוריה...</p>
+        </div>
       </div>
-    </section>
 
-    <section class="calendar-section">
-      <h2>קביעת תור חדש</h2>
-      <p class="calendar-hint">לחץ על תאריך לראות שעות פנויות</p>
-      <div id="calendar"></div>
-    </section>
+      <!-- Payment Methods -->
+      <div class="sidebar-card">
+        <div class="section-header">
+          <div class="section-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="1" y="4" width="22" height="16" rx="2" ry="2"/>
+              <line x1="1" y1="10" x2="23" y2="10"/>
+            </svg>
+          </div>
+          <h3>בחר אמצעי תשלום</h3>
+        </div>
+        <div class="payment-grid">
+          <div class="payment-method-card">
+            <div class="pm-icon pm-icon-bit">
+              <strong>bit</strong>
+            </div>
+            <span class="pm-label">ביט</span>
+          </div>
+          <div class="payment-method-card">
+            <div class="pm-icon pm-icon-paybox">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+            </div>
+            <span class="pm-label">פייבוקס</span>
+          </div>
+          <div class="payment-method-card">
+            <div class="pm-icon pm-icon-cash">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="3"/></svg>
+            </div>
+            <span class="pm-label">מזומן</span>
+          </div>
+          <div class="payment-method-card">
+            <div class="pm-icon pm-icon-credit">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+            </div>
+            <span class="pm-label">אשראי</span>
+          </div>
+        </div>
+      </div>
+    </div>
   </main>
 
+  <!-- Support Banner -->
+  <div class="support-banner">
+    <div class="support-banner-inner">
+      <div class="support-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/>
+          <line x1="4" y1="22" x2="4" y2="15"/>
+        </svg>
+      </div>
+      <div class="support-text">
+        <h4>זקוק לעזרה?</h4>
+        <p>המוקד הטלפוני שלנו זמין עבורך 24/7 לכל שאלה.</p>
+      </div>
+      <a href="tel:*1234" class="support-call-btn">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+        חייגו *1234
+      </a>
+    </div>
+  </div>
+
+  <!-- Slots Modal -->
   <div id="slots-modal" class="modal hidden">
     <div class="modal-overlay" id="modal-overlay"></div>
     <div class="modal-content">
       <div class="modal-header">
         <h3 id="modal-date-title">בחר שעה</h3>
-        <button class="modal-close" id="modal-close">✕</button>
+        <button class="modal-close" id="modal-close">&#10005;</button>
       </div>
       <div id="slots-list" class="slots-list"></div>
       <p style="text-align:center;color:#888;font-size:.82rem;margin:10px 0 4px;">
-        ⏳ קביעת התור מותנית באישור המטפל
+        &#9203; קביעת התור מותנית באישור המטפל
       </p>
     </div>
   </div>
@@ -84,6 +447,10 @@
     if (!patientId || !doctorId) {
       window.location.href = "index.html";
     }
+
+    // Show patient ID in header
+    const userNameEl = document.getElementById("user-name");
+    if (userNameEl && patientId) userNameEl.textContent = patientId;
 
     // --- Firebase init ---
     const app  = initializeApp(firebaseConfig);
@@ -137,7 +504,6 @@
 
     // --- Load availability from /doctors/{doctorId}/settings/availability ---
     async function loadAvailability() {
-      const demoMode = sessionStorage.getItem("demoMode") === "true";
       const DEFAULT_AVAIL = {
         workingDays:    [0, 1, 2, 3, 4],
         workingHours:   { start: "09:00", end: "17:00" },
@@ -151,17 +517,11 @@
         console.warn("loadAvailability fallback:", err);
         availability = DEFAULT_AVAIL;
       }
-      if (demoMode) availability = DEFAULT_AVAIL;
     }
 
     // --- Load appointments from /doctors/{doctorId}/appointments ---
     async function loadAppointments() {
       const today = new Date().toISOString().split("T")[0];
-      const demoMode = sessionStorage.getItem("demoMode") === "true";
-      if (demoMode) {
-        bookedSlots = []; myAppointments = []; myHistory = [];
-        return;
-      }
       try {
         // Fetch booked + pending + cancel_requested (active / not cancelled)
         const [snapBooked, snapPending, snapCancelReq] = await Promise.all([
@@ -177,7 +537,7 @@
         bookedSlots = all;
         _splitMyAppointments(all, today);
       } catch (err) {
-        console.warn("loadAppointments demo fallback:", err);
+        console.warn("loadAppointments fallback:", err);
         bookedSlots = []; myAppointments = []; myHistory = [];
       }
     }
@@ -200,7 +560,8 @@
       _toggleCalendarVisibility();
 
       if (myAppointments.length === 0) {
-        myList.innerHTML = '<p class="empty-text">אין לך תורים קבועים כרגע.</p>';
+        myList.innerHTML = '<p class="empty-text">אין לך תורים קבועים כרגע</p>' +
+          '<a href="#calendar" class="search-slot-link">לחץ כאן לחיפוש תור פנוי</a>';
         return;
       }
       const sorted = [...myAppointments].sort((a, b) =>
@@ -217,11 +578,11 @@
         const cancelWasRejected = appt.cancelRejected === true;
         let statusBadge;
         if (isCancelReq) {
-          statusBadge = '<span class="status-cancel-req">🔴 בקשת ביטול נשלחה</span>';
+          statusBadge = '<span class="status-cancel-req">&#128308; בקשת ביטול נשלחה</span>';
         } else if (isPending) {
-          statusBadge = '<span class="status-pending">🟡 ממתין לאישור מטפל</span>';
+          statusBadge = '<span class="status-pending">&#128993; ממתין לאישור מטפל</span>';
         } else {
-          statusBadge = '<span class="status-booked">🟢 מאושר</span>';
+          statusBadge = '<span class="status-booked">&#128994; מאושר</span>';
         }
 
         let cancelBtn;
@@ -240,7 +601,7 @@
           <div class="appointment-card ${isPending ? "pending" : ""} ${isCancelReq ? "cancel-requested" : ""}">
             <div class="appt-info">
               <span class="appt-date">${esc(dateStr)}</span>
-              <span class="appt-time">🕐 ${esc(appt.time)}</span>
+              <span class="appt-time">&#128336; ${esc(appt.time)}</span>
               ${statusBadge}
             </div>
             ${cancelBtn}
@@ -257,11 +618,16 @@
       const calSection = document.querySelector('.calendar-section');
       if (!calSection) return;
       const hasActive = myAppointments.length > 0;
+
+      // Toggle empty state card
+      const emptyCard = document.getElementById('empty-state-card');
+      if (emptyCard) emptyCard.style.display = hasActive ? 'none' : '';
+
       if (hasActive && !_bookingDisabled) {
         // Replace calendar with message
         calSection.innerHTML =
           '<div style="background:#e0f2fe;border:2px solid #7dd3fc;border-radius:10px;padding:20px;text-align:center;">' +
-          '<div style="font-size:1.3rem;margin-bottom:8px;">📅</div>' +
+          '<div style="font-size:1.3rem;margin-bottom:8px;">&#128197;</div>' +
           '<div style="font-weight:700;font-size:1rem;color:#0369a1;">יש לך כבר תור פעיל</div>' +
           '<div style="color:#0369a1;font-size:.85rem;margin-top:4px;">לא ניתן לקבוע תור נוסף עד שהתור הנוכחי יתקיים.<br>ניתן לבטל את התור ולקבוע חדש.</div>' +
           '</div>';
@@ -278,10 +644,10 @@
     }
 
     const PATIENT_PAY_METHODS = {
-      bit:    '💳 ביט',
-      paybox: '💳 פייבוקס',
-      cash:   '💵 מזומן',
-      bank:   '🏦 העברה בנקאית',
+      bit:    '&#128179; ביט',
+      paybox: '&#128179; פייבוקס',
+      cash:   '&#128181; מזומן',
+      bank:   '&#127974; העברה בנקאית',
     };
 
     function renderHistory() {
@@ -302,7 +668,7 @@
         // Status line
         let statusHtml = '';
         if (appt.treated) {
-          statusHtml = '<span class="hist-badge hist-treated">✔ טיפול בוצע</span>';
+          statusHtml = '<span class="hist-badge hist-treated">&#10004; טיפול בוצע</span>';
         } else {
           statusHtml = '<span class="hist-badge hist-missing">ממתין לאישור טיפול</span>';
         }
@@ -311,24 +677,24 @@
         let paymentHtml = '';
         if (appt.paid) {
           const methodLabel = PATIENT_PAY_METHODS[appt.paymentMethod] || '';
-          paymentHtml = `<div class="hist-pay-done">✔ שולם${methodLabel ? ' – ' + esc(methodLabel) : ''}</div>`;
+          paymentHtml = `<div class="hist-pay-done">&#10004; שולם${methodLabel ? ' &ndash; ' + esc(methodLabel) : ''}</div>`;
         } else if (appt.patientMarkedPaid) {
           const methodLabel = PATIENT_PAY_METHODS[appt.patientPaymentMethod] || '';
-          paymentHtml = `<div class="hist-pay-waiting">⏳ תשלום סומן${methodLabel ? ' (' + esc(methodLabel) + ')' : ''} – ממתין לאימות המטפל</div>`;
+          paymentHtml = `<div class="hist-pay-waiting">&#9203; תשלום סומן${methodLabel ? ' (' + esc(methodLabel) + ')' : ''} &ndash; ממתין לאימות המטפל</div>`;
         } else if (appt.treated) {
           // Treated but not paid → show payment method selection
           paymentHtml = `
             <div class="pay-method-select" data-id="${esc(appt.id)}">
               <div style="font-size:.82rem;font-weight:600;color:#2d7738;margin-bottom:6px;">
-                💳 בחר אמצעי תשלום${price ? ': <strong>' + esc(price) + '₪</strong>' : ''}
+                &#128179; בחר אמצעי תשלום${price ? ': <strong>' + esc(price) + '&#8362;</strong>' : ''}
               </div>
               <div class="pay-method-btns">
-                <button class="pay-method-btn" data-method="bit">💳 ביט</button>
-                <button class="pay-method-btn" data-method="paybox">💳 פייבוקס</button>
-                <button class="pay-method-btn" data-method="cash">💵 מזומן</button>
-                <button class="pay-method-btn" data-method="bank">🏦 העברה</button>
+                <button class="pay-method-btn" data-method="bit">&#128179; ביט</button>
+                <button class="pay-method-btn" data-method="paybox">&#128179; פייבוקס</button>
+                <button class="pay-method-btn" data-method="cash">&#128181; מזומן</button>
+                <button class="pay-method-btn" data-method="bank">&#127974; העברה</button>
               </div>
-              <button class="pay-confirm-btn hidden" data-id="${esc(appt.id)}" disabled>✔ אישור תשלום</button>
+              <button class="pay-confirm-btn hidden" data-id="${esc(appt.id)}" disabled>&#10004; אישור תשלום</button>
             </div>`;
         }
 
@@ -336,7 +702,7 @@
           <div class="appointment-card history-card">
             <div class="appt-info">
               <span class="appt-date">${esc(dateStr)}</span>
-              <span class="appt-time">🕐 ${esc(appt.time)}</span>
+              <span class="appt-time">&#128336; ${esc(appt.time)}</span>
               ${statusHtml}
             </div>
             ${paymentHtml}
@@ -387,7 +753,7 @@
       if (!el) return;
       const price = patientPrice || paymentSettings?.defaultPrice || 0;
       if (!price) { el.innerHTML = ""; return; }
-      el.innerHTML = `<div class="payment-panel"><div class="price-label">מחיר ביקור: <strong>${esc(price)}₪</strong></div></div>`;
+      el.innerHTML = `<div class="payment-panel"><div class="price-label">מחיר ביקור: <strong>${esc(price)}&#8362;</strong></div></div>`;
     }
 
     async function markPatientPaid(apptId, paymentMethod) {
@@ -671,8 +1037,6 @@
 
     // --- Real-time listener for availability changes (no page refresh) ---
     function _watchAvailability() {
-      const demoMode = sessionStorage.getItem("demoMode") === "true";
-      if (demoMode) return;
       onSnapshot(drDoc("settings", "availability"), (snap) => {
         if (!snap.exists()) return;
         const newAvail = snap.data();
@@ -688,8 +1052,6 @@
 
     // --- Real-time listener for appointment changes (status, treated, paid) ---
     function _watchAppointments() {
-      const demoMode = sessionStorage.getItem("demoMode") === "true";
-      if (demoMode) return;
       const today = new Date().toISOString().split("T")[0];
       // Listen to all non-cancelled appointments for this patient
       const q1 = query(drCol("appointments"), where("status", "==", "booked"));
@@ -725,10 +1087,7 @@
     }
 
     async function init() {
-      const demoMode = sessionStorage.getItem("demoMode") === "true";
-      if (!demoMode) {
-        try { await signInAnonymously(auth); } catch (e) { console.warn("anon auth:", e); }
-      }
+      try { await signInAnonymously(auth); } catch (e) { console.warn("anon auth:", e); }
       await loadAvailability();
       await Promise.all([loadAppointments(), loadPaymentInfo()]);
 

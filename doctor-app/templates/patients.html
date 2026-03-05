@@ -72,7 +72,7 @@
             &#128196; היסטוריה
           </button>
           <button class="btn btn-outline-secondary btn-sm ms-1"
-                  onclick="openEdit({{ p.id }}, '{{ p.name }}', '{{ p.phone }}', `{{ p.notes }}`, {{ p.price or 0 }}, {{ p.is_anonymous or 0 }})"
+                  onclick="openEdit({{ p.id }}, '{{ p.name }}', '{{ p.phone }}', `{{ p.notes }}`, {{ p.price or 0 }}, {{ p.is_anonymous or 0 }}, '{{ p.email or '' }}')"
                   data-bs-toggle="modal" data-bs-target="#editModal">
             &#9998; ערוך
           </button>
@@ -204,8 +204,12 @@
             <input type="text" name="name" id="addNameInput" class="form-control" required />
           </div>
           <div class="mb-1">
-            <label class="form-label fw-semibold mb-1">טלפון</label>
-            <input type="tel" name="phone" class="form-control" />
+            <label class="form-label fw-semibold mb-1">טלפון אישי</label>
+            <input type="tel" name="phone" class="form-control" placeholder="050-0000000" />
+          </div>
+          <div class="mb-1">
+            <label class="form-label fw-semibold mb-1">אימייל</label>
+            <input type="email" name="email" class="form-control" placeholder="example@email.com" dir="ltr" />
           </div>
           <div class="mb-1">
             <label class="form-label fw-semibold mb-1">מחיר (₪)</label>
@@ -242,8 +246,12 @@
             <input type="text" name="name" id="editName" class="form-control" required />
           </div>
           <div class="mb-3">
-            <label class="form-label">טלפון</label>
+            <label class="form-label">טלפון אישי</label>
             <input type="tel" name="phone" id="editPhone" class="form-control" />
+          </div>
+          <div class="mb-3">
+            <label class="form-label">אימייל</label>
+            <input type="email" name="email" id="editEmail" class="form-control" dir="ltr" />
           </div>
           <div class="mb-3">
             <label class="form-label">הערות</label>
@@ -359,10 +367,11 @@ function copyUuid(uuid) {
   });
 }
 
-function openEdit(id, name, phone, notes, price, isAnonymous) {
+function openEdit(id, name, phone, notes, price, isAnonymous, email) {
   document.getElementById('editForm').action = '/patients/update/' + id;
   document.getElementById('editName').value = name;
   document.getElementById('editPhone').value = phone;
+  document.getElementById('editEmail').value = email || '';
   document.getElementById('editNotes').value = notes;
   document.getElementById('editPrice').value = price || 0;
   document.getElementById('editAnonymous').checked = !!isAnonymous;

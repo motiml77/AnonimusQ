@@ -10,9 +10,19 @@
   .login-wrapper {
     min-height: 100vh;
     display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
     padding: 20px;
+  }
+  .clinic-logo-doctor {
+    margin-bottom: 28px;
+  }
+  .clinic-logo-doctor img {
+    height: 64px;
+    width: auto;
+    display: block;
+    margin: 0 auto;
   }
   .login-card {
     background: #fff;
@@ -182,6 +192,11 @@
 
 {% block content %}
 <div class="login-wrapper">
+  <!-- Logo above card -->
+  <div class="clinic-logo-doctor">
+    <img src="{{ url_for('static', filename='img/clinicTor.png') }}" alt="ClinicTor" />
+  </div>
+
   <div class="login-card">
 
     <!-- Icon -->

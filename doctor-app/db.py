@@ -165,6 +165,12 @@ def init_db():
     except Exception:
         pass
 
+    # Migrate: add email column to patients if missing
+    try:
+        conn.execute("ALTER TABLE patients ADD COLUMN email TEXT DEFAULT ''")
+    except Exception:
+        pass
+
     # New tables for patient detail features (v2)
     _ensure_treatment_notes_table(conn)
     _ensure_emergency_contacts_table(conn)
@@ -320,7 +326,8 @@ def set_patient_active(patient_id: int, active: int) -> bool:
 
 def add_patient(name: str, phone: str = "", notes: str = "",
                 firebase_check=None, price: float = 0,
-                suggested_id: str = "", is_anonymous: int = 0) -> dict:
+                suggested_id: str = "", is_anonymous: int = 0,
+                email: str = "") -> dict:
     """Add a new patient.
     suggested_id: if provided and still unique, use it (preserves the previewed ID).
     firebase_check: optional callable(id)->bool to verify remote uniqueness.
@@ -340,8 +347,8 @@ def add_patient(name: str, phone: str = "", notes: str = "",
         if not anonymous_id:
             anonymous_id = _unique_patient_id(conn, extra_check=firebase_check)
         conn.execute(
-            "INSERT INTO patients (name, anonymous_id, phone, notes, price, is_anonymous) VALUES (?, ?, ?, ?, ?, ?)",
-            (name, anonymous_id, phone, notes, float(price or 0), int(is_anonymous)),
+            "INSERT INTO patients (name, anonymous_id, phone, notes, price, is_anonymous, email) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (name, anonymous_id, phone, notes, float(price or 0), int(is_anonymous), email),
         )
         conn.commit()
         conn.close()
@@ -351,12 +358,13 @@ def add_patient(name: str, phone: str = "", notes: str = "",
 
 
 def update_patient(patient_id: int, name: str, phone: str, notes: str,
-                   price: float = 0, is_anonymous: int = 0) -> dict:
+                   price: float = 0, is_anonymous: int = 0,
+                   email: str = "") -> dict:
     try:
         conn = _get_conn()
         conn.execute(
-            "UPDATE patients SET name=?, phone=?, notes=?, price=?, is_anonymous=? WHERE id=?",
-            (name, phone, notes, float(price or 0), int(is_anonymous), patient_id),
+            "UPDATE patients SET name=?, phone=?, notes=?, price=?, is_anonymous=?, email=? WHERE id=?",
+            (name, phone, notes, float(price or 0), int(is_anonymous), email, patient_id),
         )
         conn.commit()
         conn.close()

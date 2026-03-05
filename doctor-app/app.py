@@ -815,13 +815,14 @@ def patients_add():
 
     price        = float(request.form.get("price", 0) or 0)
     suggested_id = request.form.get("suggested_id", "").strip()
+    email        = request.form.get("email", "").strip()
     is_anonymous = 1 if request.form.get("is_anonymous") else 0
     if price == 0:
         price = db.get_payment_settings().get("defaultPrice", 0)
     firebase_check = firebase_sync.patient_id_exists if firebase_sync.is_connected() else None
     result = db.add_patient(name, phone, notes, firebase_check=firebase_check,
                             price=price, suggested_id=suggested_id,
-                            is_anonymous=is_anonymous)
+                            is_anonymous=is_anonymous, email=email)
     if result["ok"]:
         anon_id = result["anonymous_id"]
         if firebase_sync.is_connected():
@@ -840,6 +841,7 @@ def patients_add():
 def patients_update(patient_id):
     name  = request.form.get("name",  "").strip()
     phone = request.form.get("phone", "").strip()
+    email = request.form.get("email", "").strip()
     notes = request.form.get("notes", "").strip()
     price = float(request.form.get("price", 0) or 0)
     is_anonymous = 1 if request.form.get("is_anonymous") else 0
@@ -849,7 +851,7 @@ def patients_update(patient_id):
         return redirect(url_for("patients"))
 
     result = db.update_patient(patient_id, name, phone, notes, price=price,
-                               is_anonymous=is_anonymous)
+                               is_anonymous=is_anonymous, email=email)
     if result["ok"] and firebase_sync.is_connected():
         # Look up anonymous_id to update price in Firebase
         patient = db.get_patient_by_id(patient_id)
