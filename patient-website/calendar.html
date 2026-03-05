@@ -154,11 +154,77 @@
       flex-direction: column;
       align-items: center;
       gap: 8px;
-      cursor: default;
-      transition: border-color 0.2s;
+      cursor: pointer;
+      transition: border-color 0.2s, box-shadow 0.2s;
+      text-decoration: none;
+      color: inherit;
     }
     .payment-method-card:hover {
       border-color: #2bb66e;
+      box-shadow: 0 2px 8px rgba(43,182,110,0.15);
+    }
+    .payment-method-card.pm-disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    .payment-method-card.pm-selected {
+      border-color: #2bb66e;
+      background: #e6f9ee;
+      box-shadow: 0 0 0 2px rgba(43,182,110,0.25);
+    }
+    .sidebar-pay-price {
+      text-align: center;
+      font-size: 0.95rem;
+      color: #0a2540;
+      margin-bottom: 14px;
+      font-weight: 600;
+    }
+    .sidebar-pay-price strong {
+      color: #2bb66e;
+      font-size: 1.1rem;
+    }
+    .sidebar-pay-confirm {
+      width: 100%;
+      height: 44px;
+      background: #2bb66e;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 0.95rem;
+      font-weight: 700;
+      font-family: 'Inter', 'Segoe UI', sans-serif;
+      cursor: pointer;
+      transition: background 0.2s, transform 0.15s;
+      margin-top: 14px;
+      display: none;
+    }
+    .sidebar-pay-confirm:hover:not(:disabled) {
+      background: #24a05f;
+      transform: translateY(-1px);
+    }
+    .sidebar-pay-confirm:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+    .sidebar-pay-confirm.visible {
+      display: block;
+    }
+    .sidebar-pay-status {
+      text-align: center;
+      padding: 14px;
+      border-radius: 10px;
+      font-size: 0.88rem;
+      font-weight: 600;
+    }
+    .sidebar-pay-status.waiting {
+      background: #fef9c3;
+      border: 1px solid #fde68a;
+      color: #92400e;
+    }
+    .sidebar-pay-status.confirmed {
+      background: #dcfce7;
+      border: 1px solid #86efac;
+      color: #166534;
     }
     .pm-icon {
       width: 36px;
@@ -353,7 +419,7 @@
       </div>
 
       <!-- Payment Methods -->
-      <div class="sidebar-card">
+      <div class="sidebar-card" id="sidebar-payment-card">
         <div class="section-header">
           <div class="section-icon">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -361,33 +427,11 @@
               <line x1="1" y1="10" x2="23" y2="10"/>
             </svg>
           </div>
-          <h3>בחר אמצעי תשלום</h3>
+          <h3>תשלום</h3>
         </div>
-        <div class="payment-grid">
-          <div class="payment-method-card">
-            <div class="pm-icon pm-icon-bit">
-              <strong>bit</strong>
-            </div>
-            <span class="pm-label">ביט</span>
-          </div>
-          <div class="payment-method-card">
-            <div class="pm-icon pm-icon-paybox">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
-            </div>
-            <span class="pm-label">פייבוקס</span>
-          </div>
-          <div class="payment-method-card">
-            <div class="pm-icon pm-icon-cash">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="3"/></svg>
-            </div>
-            <span class="pm-label">מזומן</span>
-          </div>
-          <div class="payment-method-card">
-            <div class="pm-icon pm-icon-credit">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
-            </div>
-            <span class="pm-label">אשראי</span>
-          </div>
+        <div id="sidebar-payment-content">
+          <!-- Will be populated dynamically by renderSidebarPayment() -->
+          <p class="empty-text">אין תשלום ממתין כרגע.</p>
         </div>
       </div>
     </div>
@@ -644,10 +688,10 @@
     }
 
     const PATIENT_PAY_METHODS = {
-      bit:    '&#128179; ביט',
-      paybox: '&#128179; פייבוקס',
-      cash:   '&#128181; מזומן',
-      bank:   '&#127974; העברה בנקאית',
+      bit:    'ביט',
+      paybox: 'פייבוקס',
+      cash:   'מזומן',
+      bank:   'העברה בנקאית',
     };
 
     function renderHistory() {
@@ -655,6 +699,7 @@
       if (!histEl) return;
       if (myHistory.length === 0) {
         histEl.innerHTML = '<p class="empty-text">אין היסטוריית ביקורים.</p>';
+        renderSidebarPayment();
         return;
       }
       const price = patientPrice || paymentSettings?.defaultPrice || 0;
@@ -721,6 +766,10 @@
             btns.forEach(b => b.classList.remove("selected"));
             btn.classList.add("selected");
             selectedMethod = btn.dataset.method;
+            // For Bit/PayBox: open the payment link immediately
+            if (selectedMethod === 'bit' || selectedMethod === 'paybox') {
+              openPaymentLink(selectedMethod);
+            }
             confirmBtn.classList.remove("hidden");
             confirmBtn.disabled = false;
           });
@@ -732,6 +781,9 @@
           }
         });
       });
+
+      // Update sidebar payment section
+      renderSidebarPayment();
     }
 
     // --- Payment info ---
@@ -754,6 +806,131 @@
       const price = patientPrice || paymentSettings?.defaultPrice || 0;
       if (!price) { el.innerHTML = ""; return; }
       el.innerHTML = `<div class="payment-panel"><div class="price-label">מחיר ביקור: <strong>${esc(price)}&#8362;</strong></div></div>`;
+    }
+
+    /** Build a payment link with the patient's tariff amount appended */
+    function buildPaymentUrl(method) {
+      if (!paymentSettings) return null;
+      const price = patientPrice || paymentSettings.defaultPrice || 0;
+      let baseUrl = '';
+      if (method === 'bit')    baseUrl = paymentSettings.bitLink || '';
+      if (method === 'paybox') baseUrl = paymentSettings.payboxLink || '';
+      if (!baseUrl) return null;
+      // Append amount as query parameter
+      if (price > 0) {
+        const sep = baseUrl.includes('?') ? '&' : '?';
+        return baseUrl + sep + 'amount=' + encodeURIComponent(price);
+      }
+      return baseUrl;
+    }
+
+    /** Open payment link for Bit/PayBox from sidebar or history */
+    function openPaymentLink(method) {
+      const url = buildPaymentUrl(method);
+      if (url) {
+        window.open(url, '_blank');
+      } else {
+        const name = method === 'bit' ? 'ביט' : 'פייבוקס';
+        showToast('קישור ' + name + ' לא הוגדר על ידי המטפל', 'error');
+      }
+    }
+
+    /** Render sidebar payment section dynamically based on appointment state */
+    function renderSidebarPayment() {
+      const container = document.getElementById("sidebar-payment-content");
+      if (!container) return;
+
+      // Find the most recent treated-but-unpaid appointment (from history)
+      const unpaidAppt = myHistory.find(a => a.treated && !a.paid && !a.patientMarkedPaid);
+      // Find appointment that patient already marked paid (waiting for doctor)
+      const waitingAppt = myHistory.find(a => a.patientMarkedPaid && !a.paid);
+      // Find appointment that is fully paid
+      const paidAppt = myHistory.find(a => a.paid);
+
+      if (waitingAppt) {
+        // Patient already marked as paid - waiting for doctor confirmation
+        const methodLabel = PATIENT_PAY_METHODS[waitingAppt.patientPaymentMethod] || '';
+        container.innerHTML =
+          '<div class="sidebar-pay-status waiting">' +
+          '&#9203; ממתין לאישור תשלום מהמטפל' +
+          (methodLabel ? '<br><span style="font-size:.8rem;font-weight:500;">אמצעי: ' + esc(methodLabel) + '</span>' : '') +
+          '</div>';
+        return;
+      }
+
+      if (!unpaidAppt) {
+        // Check if there's a recent paid appointment
+        if (paidAppt) {
+          const methodLabel = PATIENT_PAY_METHODS[paidAppt.paymentMethod] || '';
+          container.innerHTML =
+            '<div class="sidebar-pay-status confirmed">' +
+            '&#10004; התשלום אושר' +
+            (methodLabel ? ' – ' + esc(methodLabel) : '') +
+            '</div>';
+        } else {
+          container.innerHTML = '<p class="empty-text">אין תשלום ממתין כרגע.</p>';
+        }
+        return;
+      }
+
+      // There's a treated unpaid appointment - show payment selection
+      const price = patientPrice || paymentSettings?.defaultPrice || 0;
+      let html = '';
+
+      if (price > 0) {
+        html += '<div class="sidebar-pay-price">סכום לתשלום: <strong>' + esc(price) + '&#8362;</strong></div>';
+      }
+
+      html += '<div class="payment-grid" id="sidebar-payment-grid">';
+      html += '<div class="payment-method-card" data-method="bit">' +
+        '<div class="pm-icon pm-icon-bit"><strong>bit</strong></div>' +
+        '<span class="pm-label">ביט</span></div>';
+      html += '<div class="payment-method-card" data-method="paybox">' +
+        '<div class="pm-icon pm-icon-paybox"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg></div>' +
+        '<span class="pm-label">פייבוקס</span></div>';
+      html += '<div class="payment-method-card" data-method="cash">' +
+        '<div class="pm-icon pm-icon-cash"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="3"/></svg></div>' +
+        '<span class="pm-label">מזומן</span></div>';
+      html += '<div class="payment-method-card" data-method="credit">' +
+        '<div class="pm-icon pm-icon-credit"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg></div>' +
+        '<span class="pm-label">אשראי</span></div>';
+      html += '</div>';
+
+      html += '<button class="sidebar-pay-confirm" id="sidebar-pay-btn" disabled>בוצע תשלום</button>';
+
+      container.innerHTML = html;
+
+      // Wire up click handlers
+      let selectedMethod = null;
+      const cards = container.querySelectorAll('.payment-method-card');
+      const confirmBtn = document.getElementById('sidebar-pay-btn');
+
+      cards.forEach(card => {
+        card.addEventListener('click', () => {
+          const method = card.dataset.method;
+
+          // For Bit/PayBox: open payment link
+          if (method === 'bit' || method === 'paybox') {
+            openPaymentLink(method);
+          }
+
+          // Select this card
+          cards.forEach(c => c.classList.remove('pm-selected'));
+          card.classList.add('pm-selected');
+          selectedMethod = method;
+
+          // Show confirm button
+          confirmBtn.classList.add('visible');
+          confirmBtn.disabled = false;
+        });
+      });
+
+      confirmBtn.addEventListener('click', () => {
+        if (!selectedMethod) return;
+        confirmBtn.disabled = true;
+        confirmBtn.textContent = 'שולח...';
+        markPatientPaid(unpaidAppt.id, selectedMethod);
+      });
     }
 
     async function markPatientPaid(apptId, paymentMethod) {

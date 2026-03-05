@@ -33,7 +33,7 @@ import firebase_sync
 # ========================
 # App version
 # ========================
-APP_VERSION = "2.0.0"
+APP_VERSION = "2.1.0"
 
 # ========================
 # Auto-update state

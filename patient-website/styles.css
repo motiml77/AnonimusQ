@@ -368,9 +368,9 @@ body {
 }
 
 /* ===== FullCalendar overrides ===== */
-.fc-day-disabled { background: #f8f8f8 !important; cursor: default !important; }
+.fc-day-disabled { background: #f8f8f8 !important; cursor: default !important; pointer-events: none; }
 .fc-day-available:hover { background: var(--primary-light) !important; cursor: pointer; }
-.fc-day-full { background: #fef9c3 !important; }
+.fc-day-full { background: #fef2f2 !important; cursor: default !important; pointer-events: none; }
 .fc-day-mine { background: #dcfce7 !important; }
 
 .fc .fc-button-primary {

@@ -2,150 +2,130 @@
 {% block title %}התחברות{% endblock %}
 
 {% block head %}
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
 <style>
   body {
-    background: #F8FAFC !important;
+    font-family: 'Inter', 'Segoe UI', sans-serif;
+    background: #f8fafc !important;
     min-height: 100vh;
+    margin: 0;
   }
   .login-wrapper {
+    background: #f8fafc;
+    background-image: radial-gradient(circle, #e2e8f0 1px, transparent 1px);
+    background-size: 24px 24px;
     min-height: 100vh;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    padding: 20px;
-  }
-  .clinic-logo-doctor {
-    margin-bottom: 28px;
-  }
-  .clinic-logo-doctor img {
-    height: 64px;
-    width: auto;
-    display: block;
-    margin: 0 auto;
+    padding: 24px;
   }
   .login-card {
     background: #fff;
     border-radius: 16px;
-    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
     width: 100%;
-    max-width: 440px;
+    max-width: 450px;
     padding: 40px;
+    text-align: center;
   }
-  .login-icon {
-    width: 56px;
-    height: 56px;
-    background: #EBF5FF;
-    border-radius: 14px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    margin: 0 auto 16px;
+  .card-logo {
+    margin: 0 auto 20px;
   }
-  .login-icon svg {
-    width: 28px;
-    height: 28px;
-    color: #196EE6;
+  .card-logo img {
+    height: 72px;
+    width: auto;
+    display: block;
+    margin: 0 auto;
   }
-  .login-brand {
+  .login-card h1 {
     font-family: 'Inter', 'Segoe UI', sans-serif;
-    font-size: 1.6rem;
+    font-size: 2rem;
     font-weight: 700;
-    color: #0F172A;
-    text-align: center;
-    margin-bottom: 4px;
-  }
-  .login-tagline {
-    font-size: 0.9rem;
-    color: #64748B;
-    text-align: center;
-    margin-bottom: 32px;
-  }
-  .login-title {
-    font-size: 1.35rem;
-    font-weight: 700;
-    color: #0F172A;
-    text-align: center;
-    margin-bottom: 6px;
+    color: #0a2540;
+    margin-bottom: 8px;
   }
   .login-subtitle {
-    font-size: 0.82rem;
-    color: #64748B;
-    text-align: center;
-    margin-bottom: 28px;
+    font-size: 0.92rem;
+    color: #64748b;
+    margin-bottom: 32px;
   }
-  .login-label {
-    font-size: 0.85rem;
-    font-weight: 600;
-    color: #0F172A;
-    margin-bottom: 6px;
-    display: block;
-  }
-  .login-input-wrap {
-    position: relative;
+  .input-group-login {
+    text-align: right;
     margin-bottom: 20px;
   }
-  .login-input-wrap .form-control {
-    background: #F1F5F9;
-    border: 1px solid #E2E8F0;
+  .input-group-login label {
+    display: block;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #0a2540;
+    margin-bottom: 8px;
+  }
+  .input-wrap {
+    position: relative;
+  }
+  .input-wrap input {
+    width: 100%;
+    height: 56px;
+    padding: 0 48px 0 48px;
+    border: 1px solid #e2e8f0;
     border-radius: 8px;
-    padding: 12px 44px 12px 44px;
-    font-size: 0.92rem;
-    color: #0F172A;
-    transition: border-color 0.2s, box-shadow 0.2s;
+    font-size: 0.95rem;
+    font-family: 'Inter', 'Segoe UI', sans-serif;
+    color: #0a2540;
+    background: #f8fafc;
+    outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
+    box-sizing: border-box;
   }
-  .login-input-wrap .form-control::placeholder {
-    color: #94A3B8;
+  .input-wrap input::placeholder {
+    color: #94a3b8;
   }
-  .login-input-wrap .form-control:focus {
+  .input-wrap input:focus {
+    border-color: #2bb66e;
+    box-shadow: 0 0 0 3px rgba(43, 182, 110, 0.12);
     background: #fff;
-    border-color: #196EE6;
-    box-shadow: 0 0 0 3px rgba(25, 110, 230, 0.12);
   }
-  .login-input-icon {
+  .input-icon {
     position: absolute;
     top: 50%;
-    right: 14px;
+    right: 16px;
     transform: translateY(-50%);
-    color: #94A3B8;
+    color: #2bb66e;
     pointer-events: none;
+    display: flex;
+    align-items: center;
   }
-  .login-toggle-pw {
+  .toggle-pw {
     position: absolute;
     top: 50%;
     left: 14px;
     transform: translateY(-50%);
-    color: #94A3B8;
+    color: #94a3b8;
     cursor: pointer;
     background: none;
     border: none;
     padding: 0;
     line-height: 1;
+    display: flex;
+    align-items: center;
   }
-  .login-toggle-pw:hover {
-    color: #64748B;
-  }
-  .login-forgot {
-    display: block;
-    text-align: left;
-    font-size: 0.8rem;
-    color: #196EE6;
-    text-decoration: none;
-    margin-bottom: 4px;
-  }
-  .login-forgot:hover {
-    text-decoration: underline;
-    color: #1258b8;
+  .toggle-pw:hover {
+    color: #64748b;
   }
   .login-btn {
     width: 100%;
-    background: #196EE6;
+    height: 56px;
+    background: #2bb66e;
+    color: #fff;
     border: none;
     border-radius: 8px;
-    padding: 12px;
     font-size: 1rem;
     font-weight: 700;
-    color: #fff;
+    font-family: 'Inter', 'Segoe UI', sans-serif;
     cursor: pointer;
     transition: background 0.2s, transform 0.15s, box-shadow 0.2s;
     display: flex;
@@ -153,113 +133,142 @@
     justify-content: center;
     gap: 8px;
     margin-top: 8px;
+    padding: 0;
   }
   .login-btn:hover:not(:disabled) {
-    background: #1258B8;
+    background: #24a05f;
     transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(25, 110, 230, 0.3);
+    box-shadow: 0 4px 12px rgba(43, 182, 110, 0.3);
   }
   .login-btn:active:not(:disabled) {
     transform: translateY(0);
   }
   .login-btn:disabled {
-    opacity: 0.7;
+    opacity: 0.6;
     cursor: not-allowed;
   }
   .login-footer {
     text-align: center;
     margin-top: 24px;
     font-size: 0.85rem;
-    color: #64748B;
+    color: #64748b;
   }
   .login-footer a {
-    color: #196EE6;
+    color: #2bb66e;
     font-weight: 600;
     text-decoration: none;
   }
   .login-footer a:hover {
     text-decoration: underline;
+    color: #24a05f;
+  }
+  .login-error-msg {
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    color: #ef4444;
+    padding: 12px 16px;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    margin-bottom: 16px;
+    text-align: right;
+  }
+  .login-help {
+    margin-top: 24px;
+    font-size: 0.82rem;
+    color: #64748b;
+  }
+  /* Spinner */
+  .login-spinner {
+    width: 20px;
+    height: 20px;
+    border: 2px solid rgba(255,255,255,0.4);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    display: inline-block;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .hidden { display: none !important; }
+  /* Secure footer */
+  .secure-footer {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    margin-top: 32px;
+    font-size: 0.8rem;
+    color: #94a3b8;
   }
   /* Override base.html container padding for login page */
   .container-fluid { padding: 0 !important; }
-  .login-alert {
-    border-radius: 8px;
-    font-size: 0.85rem;
-    margin-bottom: 20px;
+  @media (max-width: 500px) {
+    .login-card { padding: 28px 20px; }
+    .login-card h1 { font-size: 1.6rem; }
   }
 </style>
 {% endblock %}
 
 {% block content %}
 <div class="login-wrapper">
-  <!-- Logo above card -->
-  <div class="clinic-logo-doctor">
-    <img src="{{ url_for('static', filename='img/clinicTor.png') }}" alt="ClinicTor" />
-  </div>
-
   <div class="login-card">
-
-    <!-- Icon -->
-    <div class="login-icon">
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
-        <path d="M20 6h-4V4c0-1.1-.9-2-2-2h-4c-1.1 0-2 .9-2 2v2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zM10 4h4v2h-4V4zm7 11h-3v3h-4v-3H7v-4h3V8h4v3h3v4z"/>
-      </svg>
+    <!-- Logo -->
+    <div class="card-logo">
+      <img src="{{ url_for('static', filename='img/clinicTor.png') }}" alt="ClinicTor" />
     </div>
 
-    <!-- Brand -->
-    <div class="login-brand">AnonimousQ</div>
-    <div class="login-tagline">מערכת ניהול תורים חכמה</div>
+    <h1>התחברות</h1>
+    <p class="login-subtitle">אנא הזן את פרטי המשתמש שלך כדי להמשיך</p>
 
-    <!-- Title -->
-    <div class="login-title">התחברות</div>
-    <div class="login-subtitle">אנא הזן את פרטי המשתמש שלך כדי להמשיך</div>
+    {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      {% for category, message in messages %}
+      <div class="login-error-msg">{{ message }}</div>
+      {% endfor %}
+    {% endif %}
+    {% endwith %}
 
-    <!-- Form -->
     <form method="post" id="loginForm">
       <!-- Username -->
-      <label class="login-label">שם משתמש</label>
-      <div class="login-input-wrap">
-        <span class="login-input-icon">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
-            <circle cx="12" cy="7" r="4"/>
-          </svg>
-        </span>
-        <input type="text" name="username" class="form-control"
-               placeholder="הכנס שם משתמש" required autofocus autocomplete="username" />
+      <div class="input-group-login">
+        <label for="usernameInput">שם משתמש</label>
+        <div class="input-wrap">
+          <span class="input-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+              <circle cx="12" cy="7" r="4"/>
+            </svg>
+          </span>
+          <input type="text" name="username" id="usernameInput"
+                 placeholder="הכנס שם משתמש" required autofocus autocomplete="username" />
+        </div>
       </div>
 
       <!-- Password -->
-      <div class="d-flex justify-content-between align-items-baseline">
-        <label class="login-label">סיסמא</label>
-      </div>
-      <div class="login-input-wrap" style="margin-bottom: 8px;">
-        <span class="login-input-icon">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
-            <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
-          </svg>
-        </span>
-        <input type="password" name="password" id="pwInput" class="form-control"
-               placeholder="הכנס סיסמא" required autocomplete="current-password" />
-        <button type="button" class="login-toggle-pw" id="togglePw" tabindex="-1">
-          <svg id="eyeIcon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-            <circle cx="12" cy="12" r="3"/>
-          </svg>
-        </button>
+      <div class="input-group-login">
+        <label for="pwInput">סיסמא</label>
+        <div class="input-wrap">
+          <span class="input-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+              <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+            </svg>
+          </span>
+          <input type="password" name="password" id="pwInput"
+                 placeholder="הכנס סיסמא" required autocomplete="current-password" />
+          <button type="button" class="toggle-pw" id="togglePw" tabindex="-1">
+            <svg id="eyeIcon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+              <circle cx="12" cy="12" r="3"/>
+            </svg>
+          </button>
+        </div>
       </div>
 
       <!-- Submit button -->
       <button type="submit" id="loginBtn" class="login-btn">
-        <span id="btnText">
-          כניסה
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="transform:scaleX(-1)">
-            <line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/>
-          </svg>
-        </span>
-        <span id="btnSpinner" class="d-none">
-          <span class="spinner-border spinner-border-sm me-2"></span>
+        <span id="btnText">כניסה</span>
+        <span id="btnSpinner" class="hidden">
+          <span class="login-spinner"></span>
           מתחבר...
         </span>
       </button>
@@ -270,7 +279,15 @@
       אין לך חשבון עדיין?
       <a href="{{ url_for('setup') }}">צור חשבון חדש</a>
     </div>
+  </div>
 
+  <!-- Secure connection footer -->
+  <div class="secure-footer">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+      <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+    </svg>
+    <span>חיבור מאובטח</span>
   </div>
 </div>
 
@@ -292,8 +309,8 @@ document.getElementById('togglePw').addEventListener('click', function() {
 document.getElementById('loginForm').addEventListener('submit', function() {
   var btn = document.getElementById('loginBtn');
   btn.disabled = true;
-  document.getElementById('btnText').classList.add('d-none');
-  document.getElementById('btnSpinner').classList.remove('d-none');
+  document.getElementById('btnText').classList.add('hidden');
+  document.getElementById('btnSpinner').classList.remove('hidden');
 });
 </script>
 {% endblock %}
