@@ -1,0 +1,530 @@
+{% extends "base.html" %}
+{% block title %}דוחות{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+  <h4 class="mb-0">&#128202; דוחות תורים</h4>
+  <div class="d-flex gap-2">
+    <button class="btn btn-outline-success btn-sm" onclick="exportCSV()">&#128229; ייצוא CSV</button>
+    <a href="{{ url_for('reports_backup') }}" class="btn btn-outline-primary btn-sm">&#128190; גיבוי ZIP</a>
+  </div>
+</div>
+
+<!-- Filters -->
+<div class="card mb-3">
+  <div class="card-body py-2">
+    <div class="d-flex gap-3 align-items-end flex-wrap">
+      <div>
+        <label class="form-label small mb-1">שנה</label>
+        <select id="filterYear" class="form-select form-select-sm" onchange="renderTable()">
+          <option value="">הכל</option>
+        </select>
+      </div>
+      <div>
+        <label class="form-label small mb-1">חודש</label>
+        <select id="filterMonth" class="form-select form-select-sm" onchange="renderTable()">
+          <option value="">הכל</option>
+          <option value="01">ינואר</option>
+          <option value="02">פברואר</option>
+          <option value="03">מרץ</option>
+          <option value="04">אפריל</option>
+          <option value="05">מאי</option>
+          <option value="06">יוני</option>
+          <option value="07">יולי</option>
+          <option value="08">אוגוסט</option>
+          <option value="09">ספטמבר</option>
+          <option value="10">אוקטובר</option>
+          <option value="11">נובמבר</option>
+          <option value="12">דצמבר</option>
+        </select>
+      </div>
+      <div>
+        <label class="form-label small mb-1">תשלום</label>
+        <select id="filterPaid" class="form-select form-select-sm" onchange="renderTable()">
+          <option value="">הכל</option>
+          <option value="1">שולם</option>
+          <option value="0">לא שולם</option>
+          <option value="verify">בדיקת תשלום</option>
+        </select>
+      </div>
+      <div>
+        <label class="form-label small mb-1">טיפול</label>
+        <select id="filterTreated" class="form-select form-select-sm" onchange="renderTable()">
+          <option value="">הכל</option>
+          <option value="1">בוצע</option>
+          <option value="0">טרם התקיים</option>
+        </select>
+      </div>
+      <div>
+        <label class="form-label small mb-1">מיון</label>
+        <select id="sortBy" class="form-select form-select-sm" onchange="renderTable()">
+          <option value="date-desc">&#128197; תאריך — חדש ראשון</option>
+          <option value="date-asc">&#128197; תאריך — ישן ראשון</option>
+          <option value="id-asc">&#128274; מספר מזהה (א׳ ראשון)</option>
+          <option value="untreated-first">&#9898; טרם התקיים קודם</option>
+          <option value="treated-first">&#10004; טיפול בוצע קודם</option>
+          <option value="unpaid-first">&#10060; לא שולם קודם</option>
+          <option value="paid-first">&#9989; שולם קודם</option>
+        </select>
+      </div>
+      <div>
+        <button class="btn btn-sm btn-outline-secondary" onclick="resetFilters()">נקה סינון</button>
+      </div>
+      <!-- Show names toggle -->
+      <label class="me-auto d-flex align-items-center gap-2 border rounded px-3 py-1"
+             style="background:#f0f4ff;cursor:pointer;" for="showNamesChk">
+        <input type="checkbox" id="showNamesChk" class="form-check-input mt-0"
+               style="cursor:pointer;" onchange="toggleShowNames()" />
+        <span class="form-label mb-0 small fw-semibold" style="cursor:pointer;">
+          &#128100; הצג שמות מטופלים
+        </span>
+      </label>
+    </div>
+  </div>
+</div>
+
+<style>
+  th.sort-col { cursor: pointer; user-select: none; white-space: nowrap; }
+  th.sort-col:hover { background: #e2e8f0; }
+</style>
+
+<div id="reportContainer">
+  <p class="text-muted text-center py-4">טוען...</p>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const APPOINTMENTS = {{ appointments_json|safe }};
+const ANON_IDS = {{ anonymous_ids_json|safe }};
+const PAYMENT_LABELS = { bit: 'ביט', paybox: 'פייבוקס', cash: 'מזומן', bank: 'העברה בנקאית' };
+const STATUS_LABELS  = { booked: 'מאושר', pending: 'ממתין', cancelled: 'בוטל' };
+const STATUS_BADGE   = { booked: 'bg-success', pending: 'bg-warning text-dark', cancelled: 'bg-secondary' };
+
+/** Convert 'YYYY-MM-DD' → 'D/M/YYYY' for display */
+function _fmtDate(d) {
+  if (!d || d.length < 10) return d || '';
+  const parts = d.split('-');
+  return parseInt(parts[2], 10) + '/' + parseInt(parts[1], 10) + '/' + parts[0];
+}
+
+// Populate year filter
+(function () {
+  const years = [...new Set(
+    APPOINTMENTS.map(a => (a.date || '').substring(0, 4)).filter(Boolean)
+  )].sort().reverse();
+  const sel = document.getElementById('filterYear');
+  years.forEach(y => {
+    const opt = document.createElement('option');
+    opt.value = y; opt.textContent = y;
+    sel.appendChild(opt);
+  });
+})();
+
+function resetFilters() {
+  document.getElementById('filterYear').value    = '';
+  document.getElementById('filterMonth').value   = '';
+  document.getElementById('filterPaid').value    = '';
+  document.getElementById('filterTreated').value = '';
+  document.getElementById('sortBy').value        = 'date-desc';
+  renderTable();
+}
+
+function setSort(th) {
+  const sel = document.getElementById('sortBy');
+  const current = sel.value;
+  const target  = th.dataset.sort;
+  // Toggle direction for sortable columns
+  if (target === 'date-desc') {
+    sel.value = current === 'date-desc' ? 'date-asc' : 'date-desc';
+  } else if (target === 'paid-first') {
+    sel.value = current === 'paid-first' ? 'unpaid-first' : 'paid-first';
+  } else if (target === 'treated-first') {
+    sel.value = current === 'treated-first' ? 'untreated-first' : 'treated-first';
+  } else {
+    sel.value = target;
+  }
+  renderTable();
+}
+
+function getFiltered() {
+  const year    = document.getElementById('filterYear').value;
+  const month   = document.getElementById('filterMonth').value;
+  const paid    = document.getElementById('filterPaid').value;
+  const treated = document.getElementById('filterTreated').value;
+  return APPOINTMENTS.filter(a => {
+    const d = a.date || '';
+    if (year   && !d.startsWith(year))           return false;
+    if (month  && d.substring(5, 7) !== month)   return false;
+    if (paid === '1' && !a.paid)                 return false;
+    if (paid === '0' && a.paid)                  return false;
+    if (paid === 'verify' && !(a.patientMarkedPaid && !a.paid)) return false;
+    if (treated === '1' && !a.treated)           return false;
+    if (treated === '0' && a.treated)            return false;
+    return true;
+  });
+}
+
+function _sortComparator(sort) {
+  switch (sort) {
+    case 'date-asc':
+      return (a, b) => (a.date + a.time).localeCompare(b.date + b.time);
+    case 'id-asc':
+      return (a, b) => (a.anonymousId || '').localeCompare(b.anonymousId || '');
+    case 'untreated-first':
+      return (a, b) => {
+        if (a.treated !== b.treated) return a.treated ? 1 : -1;
+        return (b.date + b.time).localeCompare(a.date + a.time);
+      };
+    case 'treated-first':
+      return (a, b) => {
+        if (a.treated !== b.treated) return a.treated ? -1 : 1;
+        return (b.date + b.time).localeCompare(a.date + a.time);
+      };
+    case 'unpaid-first':
+      return (a, b) => {
+        if (a.paid !== b.paid) return a.paid ? 1 : -1;
+        return (b.date + b.time).localeCompare(a.date + a.time);
+      };
+    case 'paid-first':
+      return (a, b) => {
+        if (a.paid !== b.paid) return a.paid ? -1 : 1;
+        return (b.date + b.time).localeCompare(a.date + a.time);
+      };
+    default: // date-desc
+      return (a, b) => (b.date + b.time).localeCompare(a.date + a.time);
+  }
+}
+
+function renderTable() {
+  const sort = document.getElementById('sortBy').value;
+  const showNames = document.getElementById('showNamesChk').checked;
+  const data = getFiltered().sort(_sortComparator(sort));
+  const container = document.getElementById('reportContainer');
+
+  if (data.length === 0) {
+    container.innerHTML = '<div class="alert alert-info">אין נתונים להצגה לפי הסינון הנוכחי.</div>';
+    return;
+  }
+
+  // Group by year+month
+  const groups = {};
+  data.forEach(a => {
+    const ym = (a.date || '').substring(0, 7);
+    if (!groups[ym]) groups[ym] = [];
+    groups[ym].push(a);
+  });
+
+  let totalAll = 0, totalTreated = 0, totalPaid = 0, totalPaidAmount = 0;
+  let html = '';
+
+  // Month groups follow the sort direction: date sorts → by date, others → newest first
+  const monthOrder = sort === 'date-asc'
+    ? Object.keys(groups).sort()
+    : Object.keys(groups).sort().reverse();
+
+  monthOrder.forEach(ym => {
+    // Within each month, keep the already-sorted order (data was sorted above)
+    const appts = groups[ym];
+    const [y, m] = ym.split('-');
+    const monthName = new Date(y, parseInt(m) - 1, 1)
+      .toLocaleDateString('he-IL', { month: 'long', year: 'numeric' });
+    const mTreated = appts.filter(a => a.treated).length;
+    const mPaid    = appts.filter(a => a.paid).length;
+    const mPaidAmount = appts.filter(a => a.paid).reduce((sum, a) => sum + (a.patientPrice || 0), 0);
+    totalAll     += appts.length;
+    totalTreated += mTreated;
+    totalPaid    += mPaid;
+    totalPaidAmount += mPaidAmount;
+
+    html += `
+      <div class="card mb-3 shadow-sm">
+        <div class="card-header d-flex justify-content-between align-items-center py-2">
+          <strong>${monthName}</strong>
+          <span class="text-muted small">
+            ${appts.length} תורים
+            &nbsp;|&nbsp; &#10003; טיפול: <strong>${mTreated}</strong>
+            &nbsp;|&nbsp; תשלום: <strong>${mPaid}</strong> (${mPaidAmount}&#8362;)
+          </span>
+        </div>
+        <div class="table-responsive">
+          <table class="table table-hover table-sm align-middle mb-0">
+            <thead class="table-light">
+              <tr>
+                <th class="sort-col" data-sort="date-desc" onclick="setSort(this)" title="מיין לפי תאריך">
+                  תאריך ${['date-asc','date-desc'].includes(sort) ? (sort==='date-asc'?'↑':'↓') : ''}
+                </th>
+                <th>שעה</th>
+                ${showNames ? '<th>מטופל</th>' : ''}
+                <th class="sort-col" data-sort="id-asc" onclick="setSort(this)" title="מיין לפי מזהה" style="cursor:pointer;">
+                  מזהה ${sort==='id-asc' ? '↑' : ''}
+                </th>
+                <th>סטטוס</th>
+                <th class="sort-col" data-sort="treated-first" onclick="setSort(this)" title="מיין לפי טיפול" style="cursor:pointer;">
+                  טיפול ${sort==='treated-first' ? '✓↑' : sort==='untreated-first' ? '○↑' : ''}
+                </th>
+                <th class="sort-col" data-sort="paid-first" onclick="setSort(this)" title="מיין לפי תשלום" style="cursor:pointer;">
+                  תשלום ${sort==='paid-first' ? '✓↑' : sort==='unpaid-first' ? '✗↑' : ''}
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              ${appts.map(a => {
+                const badgeCls = STATUS_BADGE[a.status] || 'bg-light text-muted';
+                const treated  = a.treated
+                  ? '<span class="badge bg-primary">&#10004; בוצע</span>'
+                  : '<span class="badge bg-light text-muted border">טרם התקיים</span>';
+                const payLabel = a.paid
+                  ? `<span class="badge bg-success">&#10004; ${PAYMENT_LABELS[a.paymentMethod] || 'שולם'}</span>`
+                  : (a.patientMarkedPaid
+                    ? '<span class="badge" style="background:#6f42c1;color:#fff;">₪? בדיקת תשלום</span>'
+                    : '<span class="badge bg-light text-muted border">לא</span>');
+                const isAnon = ANON_IDS.indexOf(a.anonymousId) !== -1;
+                const nameCell = showNames
+                  ? (isAnon
+                    ? `<td class="fw-semibold"><span class="anon-blur" onclick="this.classList.toggle('revealed')">${a.patientName || ''}</span></td>`
+                    : `<td class="fw-semibold">${a.patientName || ''}</td>`)
+                  : '';
+                const aId = (a.id || '').replace(/'/g, "\\'");
+                return `<tr>
+                  <td class="text-nowrap">${_fmtDate(a.date)}</td>
+                  <td>${a.time || ''}</td>
+                  ${nameCell}
+                  <td class="text-muted small font-monospace">${a.anonymousId || ''}</td>
+                  <td><span class="badge ${badgeCls}">${STATUS_LABELS[a.status] || a.status || ''}</span></td>
+                  <td style="cursor:context-menu" oncontextmenu="showReportCtx(event,'treated','${aId}')"
+                      title="קליק ימני לשינוי">${treated}</td>
+                  <td style="cursor:context-menu" oncontextmenu="showReportCtx(event,'paid','${aId}')"
+                      title="קליק ימני לשינוי">${payLabel}</td>
+                </tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>`;
+  });
+
+  // Summary bar
+  const summary = `
+    <div class="alert alert-light border d-flex gap-4 flex-wrap align-items-center mb-3">
+      <strong>סה"כ ${totalAll} תורים</strong>
+      <span>&#10003; טיפול בוצע: <strong>${totalTreated}</strong></span>
+      <span>תשלום התקבל: <strong>${totalPaid}</strong> (${totalPaidAmount}&#8362;)</span>
+      <span class="text-muted small me-auto">מוצגים ${data.length} מתוך ${APPOINTMENTS.length}</span>
+    </div>`;
+
+  container.innerHTML = summary + html;
+  // Save show-names preference
+  localStorage.setItem('reportShowNames', showNames ? '1' : '0');
+}
+
+// ─── CSV export with native file picker ────────────────────────────────────
+
+async function exportCSV() {
+  const showNames = document.getElementById('showNamesChk').checked;
+  const data = getFiltered();
+  const BOM  = '\ufeff';
+  const header = showNames
+    ? ['תאריך', 'שעה', 'מטופל', 'מזהה', 'סטטוס', 'טיפול', 'תשלום', 'שיטת תשלום']
+    : ['תאריך', 'שעה', 'מזהה', 'סטטוס', 'טיפול', 'תשלום', 'שיטת תשלום'];
+  const rows = [
+    header,
+    ...data.map(a => {
+      const row = [_fmtDate(a.date), a.time || ''];
+      if (showNames) {
+        const isAnon = ANON_IDS.indexOf(a.anonymousId) !== -1;
+        row.push(isAnon ? (a.anonymousId || '') : (a.patientName || ''));
+      }
+      row.push(
+        a.anonymousId || '',
+        STATUS_LABELS[a.status]  || a.status  || '',
+        a.treated  ? 'כן' : 'טרם התקיים',
+        a.paid     ? 'כן' : 'לא',
+        PAYMENT_LABELS[a.paymentMethod] || '',
+      );
+      return row;
+    }),
+  ];
+  const csv  = BOM + rows.map(r =>
+    r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')
+  ).join('\r\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+
+  if (window.showSaveFilePicker) {
+    try {
+      const fh = await window.showSaveFilePicker({
+        suggestedName: 'appointments.csv',
+        types: [{ description: 'CSV File', accept: { 'text/csv': ['.csv'] } }],
+      });
+      const writable = await fh.createWritable();
+      await writable.write(blob);
+      await writable.close();
+      return;
+    } catch (e) {
+      if (e.name === 'AbortError') return; // user cancelled
+    }
+  }
+  // Fallback
+  const url = URL.createObjectURL(blob);
+  const a   = document.createElement('a');
+  a.href = url; a.download = 'appointments.csv'; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 3000);
+}
+
+// ─── Show names toggle ──────────────────────────────────────────────────────
+function toggleShowNames() {
+  renderTable();
+}
+
+// Restore preference on load
+(function () {
+  if (localStorage.getItem('reportShowNames') === '1') {
+    document.getElementById('showNamesChk').checked = true;
+  }
+})();
+
+// ─── Right-click context menu for reports ────────────────────────────────
+let _rptCtx = null;
+function _ensureRptCtx() {
+  if (_rptCtx) return _rptCtx;
+  _rptCtx = document.createElement('div');
+  Object.assign(_rptCtx.style, {
+    position: 'fixed', zIndex: '99999',
+    background: '#fff', border: '1px solid #dee2e6', borderRadius: '8px',
+    boxShadow: '0 4px 20px rgba(0,0,0,.18)', padding: '4px 0',
+    minWidth: '180px', display: 'none',
+  });
+  document.body.appendChild(_rptCtx);
+  document.addEventListener('click', () => { _rptCtx.style.display = 'none'; });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') _rptCtx.style.display = 'none'; });
+  document.addEventListener('scroll', () => { _rptCtx.style.display = 'none'; }, true);
+  return _rptCtx;
+}
+
+function _rptCtxItem(icon, label, color, onclick) {
+  const btn = document.createElement('button');
+  Object.assign(btn.style, {
+    display: 'flex', alignItems: 'center', gap: '8px',
+    width: '100%', padding: '7px 14px',
+    border: 'none', background: 'none', cursor: 'pointer',
+    fontSize: '.85rem', color: '#212529', whiteSpace: 'nowrap',
+  });
+  btn.innerHTML = `<span style="color:${color};font-size:1rem;">${icon}</span>${label}`;
+  btn.onmouseenter = () => btn.style.background = '#f8f9fa';
+  btn.onmouseleave = () => btn.style.background = 'none';
+  btn.addEventListener('click', e => { e.stopPropagation(); _rptCtx.style.display = 'none'; onclick(); });
+  return btn;
+}
+
+function _findAppt(id) {
+  return APPOINTMENTS.find(a => a.id === id);
+}
+
+function showReportCtx(event, field, apptId) {
+  event.preventDefault();
+  event.stopPropagation();
+  const menu = _ensureRptCtx();
+  menu.innerHTML = '';
+  const appt = _findAppt(apptId);
+  if (!appt) return;
+
+  const source = appt.source || (String(appt.id).startsWith('local-') ? 'local' : 'firebase');
+
+  if (field === 'treated') {
+    const hdr = document.createElement('div');
+    hdr.style.cssText = 'padding:5px 14px;font-size:.75rem;color:#6c757d;font-weight:600;';
+    hdr.textContent = 'טיפול';
+    menu.appendChild(hdr);
+
+    if (appt.status === 'cancelled') {
+      const warn = document.createElement('div');
+      warn.style.cssText = 'padding:5px 14px;font-size:.8rem;color:#dc3545;';
+      warn.textContent = 'לא ניתן לסמן טיפול בתור שבוטל';
+      menu.appendChild(warn);
+    } else if (!appt.treated) {
+      menu.appendChild(_rptCtxItem('✔', 'סמן טיפול בוצע', '#0d6efd', () => _rptMark(apptId, 'treated', true)));
+    } else {
+      menu.appendChild(_rptCtxItem('↩', 'בטל סימון טיפול', '#6c757d', () => _rptMark(apptId, 'treated', false)));
+    }
+  }
+
+  else if (field === 'paid') {
+    const hdr = document.createElement('div');
+    hdr.style.cssText = 'padding:5px 14px;font-size:.75rem;color:#6c757d;font-weight:600;';
+    hdr.textContent = 'תשלום';
+    menu.appendChild(hdr);
+
+    if (appt.status === 'cancelled') {
+      const warn = document.createElement('div');
+      warn.style.cssText = 'padding:5px 14px;font-size:.8rem;color:#dc3545;';
+      warn.textContent = 'לא ניתן לסמן תשלום בתור שבוטל';
+      menu.appendChild(warn);
+    } else if (!appt.paid) {
+      if (!appt.treated) {
+        const warn = document.createElement('div');
+        warn.style.cssText = 'padding:5px 14px;font-size:.8rem;color:#dc3545;';
+        warn.textContent = 'יש לסמן טיפול בוצע קודם';
+        menu.appendChild(warn);
+      } else {
+        menu.appendChild(_rptCtxItem('💳', 'ביט', '#198754', () => _rptMark(apptId, 'paid', true, 'bit')));
+        menu.appendChild(_rptCtxItem('📱', 'פייבוקס', '#198754', () => _rptMark(apptId, 'paid', true, 'paybox')));
+        menu.appendChild(_rptCtxItem('💵', 'מזומן', '#198754', () => _rptMark(apptId, 'paid', true, 'cash')));
+        menu.appendChild(_rptCtxItem('🏦', 'העברה בנקאית', '#198754', () => _rptMark(apptId, 'paid', true, 'bank')));
+      }
+    } else {
+      menu.appendChild(_rptCtxItem('↩', 'בטל סימון תשלום', '#6c757d', () => _rptMark(apptId, 'paid', false)));
+    }
+  }
+
+  const x = event.clientX, y = event.clientY;
+  menu.style.left = x + 'px';
+  menu.style.top  = y + 'px';
+  menu.style.display = 'block';
+  requestAnimationFrame(() => {
+    const r = menu.getBoundingClientRect();
+    if (r.right  > window.innerWidth)  menu.style.left = (x - r.width) + 'px';
+    if (r.bottom > window.innerHeight) menu.style.top  = (y - r.height) + 'px';
+  });
+}
+
+function _rptMark(apptId, field, value, paymentMethod) {
+  const appt   = _findAppt(apptId);
+  if (!appt) return;
+  const source = appt.source || (String(appt.id).startsWith('local-') ? 'local' : 'firebase');
+
+  // Save old values for revert on error
+  const oldField = appt[field], oldPM = appt.paymentMethod, oldPaid = appt.paid;
+
+  // Optimistic: update local state + re-render immediately
+  appt[field] = value;
+  if (field === 'paid' && value) appt.paymentMethod = paymentMethod;
+  if (field === 'paid' && !value) appt.paymentMethod = null;
+  if (field === 'treated' && !value) { appt.paid = false; appt.paymentMethod = null; }
+  renderTable();
+
+  fetch(`/appointments/mark/${apptId}?source=${source}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ field, value, paymentMethod: paymentMethod || null }),
+  })
+    .then(r => r.json())
+    .then(data => {
+      if (!data.ok) {
+        appt[field] = oldField; appt.paymentMethod = oldPM;
+        if (field === 'treated') appt.paid = oldPaid;
+        renderTable();
+        alert('שגיאה: ' + (data.error || 'לא הצליח'));
+      }
+    })
+    .catch(err => {
+      appt[field] = oldField; appt.paymentMethod = oldPM;
+      if (field === 'treated') appt.paid = oldPaid;
+      renderTable();
+      alert('שגיאת רשת: ' + err);
+    });
+}
+
+// Initial render
+renderTable();
+</script>
+{% endblock %}

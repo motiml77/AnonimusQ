@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>קביעת תור</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="page-center">
+    <div class="login-card">
+      <div class="logo">
+        <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#4f46e5" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+          <line x1="16" y1="2" x2="16" y2="6"/>
+          <line x1="8" y1="2" x2="8" y2="6"/>
+          <line x1="3" y1="10" x2="21" y2="10"/>
+        </svg>
+      </div>
+      <h1>קביעת תור</h1>
+      <p class="subtitle">הזן את פרטי הכניסה שקיבלת מהמטפל</p>
+
+      <form id="login-form">
+        <!-- Doctor ID – pre-filled from URL ?doctor=X -->
+        <div class="input-group" id="doctor-group">
+          <label for="doctor-input">מזהה מטפל</label>
+          <input
+            type="text"
+            id="doctor-input"
+            placeholder="dr-cohen"
+            autocomplete="off"
+            spellcheck="false"
+            required
+          />
+        </div>
+
+        <div class="input-group">
+          <label for="uuid-input">קוד זיהוי אישי</label>
+          <input
+            type="text"
+            id="uuid-input"
+            placeholder="A334A"
+            autocomplete="off"
+            spellcheck="false"
+            maxlength="5"
+            style="text-transform:uppercase;letter-spacing:.2em;"
+            required
+          />
+        </div>
+        <div id="login-error" class="error-msg hidden"></div>
+        <button type="submit" id="login-btn" class="btn-primary">
+          <span id="btn-text">כניסה</span>
+          <span id="btn-spinner" class="spinner hidden"></span>
+        </button>
+      </form>
+
+      <p class="help-text">אין לך קוד? פנה למטפל שלך.</p>
+      <hr style="margin:20px 0;border-color:#e2e8f0;" />
+      <p style="font-size:.8rem;color:#94a3b8;margin-bottom:10px;">מצב דמו (ללא Firebase)</p>
+      <button type="button" id="demo-btn" class="btn-primary"
+              style="background:#64748b;font-size:.85rem;padding:10px;">
+        כניסת דמו – ללא אימות
+      </button>
+    </div>
+  </div>
+
+  <!-- Firebase SDK -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+    import { getFirestore, doc, getDoc }
+      from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+    import { getAuth, signInAnonymously }
+      from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+    import { firebaseConfig } from "./firebase-config.js";
+
+    const app  = initializeApp(firebaseConfig);
+    const db   = getFirestore(app);
+    const auth = getAuth(app);
+
+    const form        = document.getElementById("login-form");
+    const doctorInput = document.getElementById("doctor-input");
+    const uuidInput   = document.getElementById("uuid-input");
+    const loginBtn    = document.getElementById("login-btn");
+    const btnText     = document.getElementById("btn-text");
+    const btnSpinner  = document.getElementById("btn-spinner");
+    const errorDiv    = document.getElementById("login-error");
+
+    // Pre-fill doctor ID from URL param ?doctor=X
+    const urlParams   = new URLSearchParams(window.location.search);
+    const doctorParam = urlParams.get("doctor");
+    if (doctorParam) {
+      doctorInput.value    = doctorParam;
+      doctorInput.readOnly = true;
+      document.getElementById("doctor-group").style.opacity = "0.7";
+    }
+
+    function setLoading(loading) {
+      loginBtn.disabled = loading;
+      btnText.classList.toggle("hidden", loading);
+      btnSpinner.classList.toggle("hidden", !loading);
+    }
+
+    function showError(msg) {
+      errorDiv.textContent = msg;
+      errorDiv.classList.remove("hidden");
+    }
+
+    function hideError() {
+      errorDiv.classList.add("hidden");
+    }
+
+    // Format: one letter + 3 digits + same letter (e.g. A334A, B939B)
+    const ID_REGEX = /^[A-Z]\d{3}[A-Z]$/i;
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      hideError();
+
+      const doctorId  = doctorInput.value.trim().toLowerCase();
+      const uuid      = uuidInput.value.trim().toUpperCase();  // normalise to uppercase
+
+      if (!doctorId) {
+        showError("נא להזין מזהה מטפל");
+        return;
+      }
+      if (!ID_REGEX.test(uuid)) {
+        showError("פורמט קוד זיהוי שגוי (לדוגמה: A334A)");
+        return;
+      }
+
+      setLoading(true);
+
+      try {
+        // Sign in anonymously so Firestore rules (request.auth != null) pass
+        await signInAnonymously(auth);
+
+        // Verify UUID under /doctors/{doctorId}/patients/{uuid}
+        const patientRef  = doc(db, "doctors", doctorId, "patients", uuid);
+        const patientSnap = await getDoc(patientRef);
+
+        if (!patientSnap.exists()) {
+          showError("קוד הזיהוי לא קיים אצל מטפל זה. בדוק שהקלדת נכון.");
+          setLoading(false);
+          return;
+        }
+
+        sessionStorage.setItem("patientId", uuid);
+        sessionStorage.setItem("doctorId",  doctorId);
+        window.location.href = "calendar.html";
+
+      } catch (err) {
+        console.error("Login error:", err);
+        showError("שגיאת חיבור. בדוק את החיבור לאינטרנט ונסה שוב.");
+        setLoading(false);
+      }
+    });
+
+    // ─── Demo bypass ──────────────────────────────────────────────────────
+    document.getElementById("demo-btn").addEventListener("click", () => {
+      const id = prompt(
+        "כניסת דמו\n\nהזן מזהה מטופל (לדוגמה: Y120Y)\n\nמזהי הדמו הזמינים:\n" +
+        "Y120Y  |  O280O  |  Z091Z  |  P852P  |  P889P"
+      );
+      if (!id) return;
+      const clean = id.trim().toUpperCase();
+      if (!ID_REGEX.test(clean)) {
+        alert("פורמט שגוי. השתמש באחד מהמזהים שלמעלה.");
+        return;
+      }
+      const doctor = doctorInput.value.trim().toLowerCase() || "demo-doctor";
+      sessionStorage.setItem("patientId", clean);
+      sessionStorage.setItem("doctorId",  doctor);
+      sessionStorage.setItem("demoMode",  "true");
+      window.location.href = "calendar.html";
+    });
+  </script>
+</body>
+</html>

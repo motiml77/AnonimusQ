@@ -1,0 +1,373 @@
+{% extends "base.html" %}
+{% block title %}לוח שנה{% endblock %}
+
+{% block head %}
+<!-- FullCalendar v6 bundles CSS inside the JS; no separate CSS needed -->
+{% endblock %}
+
+{% block content %}
+
+<div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+  <div class="d-flex align-items-center gap-2">
+    <h4 class="mb-0">&#128197; לוח שנה – תורים</h4>
+    <button type="button" id="onlineBookingToggle" class="btn px-2 py-0 fw-semibold shadow-sm"
+            onclick="toggleOnlineBooking()"
+            style="font-size:.7rem;border-radius:6px;
+            {% if disable_online_booking %}
+            background:#dc3545;color:#fff;border:2px solid #dc3545;animation:btnDisabledPulse 1.5s ease-in-out infinite;">
+      &#128683; תורים אונליין מנוטרלים
+            {% else %}
+            background:#198754;color:#fff;border:2px solid #198754;">
+      &#9989; תורים אונליין פעילים
+            {% endif %}
+    </button>
+  </div>
+  <div class="d-flex align-items-center gap-3 flex-wrap">
+
+    <!-- Connection status dot -->
+    {% if not demo_mode %}
+    <div class="d-flex align-items-center gap-2">
+      <span style="
+        display:inline-block;width:14px;height:14px;border-radius:50%;
+        background:#198754;box-shadow:0 0 0 3px rgba(25,135,84,.25);
+        flex-shrink:0;"></span>
+      <div class="lh-sm">
+        <div class="fw-semibold text-success" style="font-size:.85rem;">Firebase מחובר</div>
+        {% if last_sync %}
+        <div class="text-muted" style="font-size:.75rem;">
+          עדכון: {{ last_sync.synced_at[:16].replace('T', ' ') }}
+          &nbsp;({{ last_sync.appointments_count }} תורים)
+        </div>
+        {% endif %}
+      </div>
+    </div>
+    <form method="post" action="{{ url_for('firebase_manual_sync') }}">
+      <button type="submit" class="btn btn-outline-primary btn-sm">&#8635; סנכרן עכשיו</button>
+    </form>
+    {% else %}
+    <div class="d-flex align-items-center gap-2">
+      <span style="
+        display:inline-block;width:14px;height:14px;border-radius:50%;
+        background:#dc3545;box-shadow:0 0 0 3px rgba(220,53,69,.25);
+        flex-shrink:0;"></span>
+      <div class="lh-sm">
+        <div class="fw-semibold text-danger" style="font-size:.85rem;">אופליין – ללא Firebase</div>
+        {% if last_sync %}
+        <div class="text-muted" style="font-size:.75rem;">
+          נתונים מ-{{ last_sync.synced_at[:16].replace('T', ' ') }}
+        </div>
+        {% else %}
+        <div class="text-muted" style="font-size:.75rem;">נתונים לוקאליים בלבד</div>
+        {% endif %}
+      </div>
+    </div>
+    {% endif %}
+
+  </div>
+</div>
+
+<!-- Pending appointments notification banner -->
+<div id="pendingBanner" style="display:none;" class="mb-2">
+  <div style="background:#fff3cd;border:1px solid #ffc107;border-radius:8px;padding:5px 14px;cursor:pointer;"
+       onclick="togglePendingDropdown()">
+    <div class="d-flex align-items-center justify-content-between">
+      <div class="d-flex align-items-center gap-2">
+        <span style="font-size:.85rem;">&#128276;</span>
+        <span style="font-weight:600;color:#856404;font-size:.82rem;" id="pendingBannerText">תורים ממתינים לאישור</span>
+      </div>
+      <span id="pendingBannerArrow" style="color:#856404;font-size:.7rem;transition:transform .2s;">&#9660;</span>
+    </div>
+  </div>
+  <div id="pendingDropdown" style="display:none;background:#fffbeb;border:1px solid #fde68a;border-radius:0 0 8px 8px;
+       margin-top:-1px;max-height:300px;overflow-y:auto;">
+  </div>
+</div>
+
+<!-- Cancellation requests banner (red) -->
+<div id="cancelBanner" style="display:none;" class="mb-2">
+  <div style="background:#fee2e2;border:1px solid #dc3545;border-radius:8px;padding:5px 14px;cursor:pointer;"
+       onclick="toggleCancelDropdown()">
+    <div class="d-flex align-items-center justify-content-between">
+      <div class="d-flex align-items-center gap-2">
+        <span style="font-size:.85rem;">&#10060;</span>
+        <span style="font-weight:600;color:#991b1b;font-size:.82rem;" id="cancelBannerText">בקשות ביטול</span>
+      </div>
+      <span id="cancelBannerArrow" style="color:#991b1b;font-size:.7rem;transition:transform .2s;">&#9660;</span>
+    </div>
+  </div>
+  <div id="cancelDropdown" style="display:none;background:#fff5f5;border:1px solid #fecaca;border-radius:0 0 8px 8px;
+       margin-top:-1px;max-height:300px;overflow-y:auto;">
+  </div>
+</div>
+
+<!-- Loading overlay – shown until first events fetch completes -->
+<div id="dashboard-loading"
+     style="display:flex;flex-direction:column;align-items:center;justify-content:center;
+            min-height:calc(100vh - 250px);gap:16px;">
+  <div class="spinner-border text-primary" role="status" style="width:3rem;height:3rem;">
+    <span class="visually-hidden">טוען...</span>
+  </div>
+  <div class="text-muted fw-semibold">טוען תורים מהשרת...</div>
+</div>
+<div id="calendar" style="display:none;"></div>
+
+<!-- Color legend below calendar -->
+<div id="calendarLegend" style="display:none;padding:10px 0;margin-top:6px;">
+  <div class="d-flex gap-4 flex-wrap" style="font-size:.8rem;color:#6c757d;">
+    <span class="d-flex align-items-center gap-1">
+      <span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:#0d6efd;"></span>
+      מאושר
+    </span>
+    <span class="d-flex align-items-center gap-1">
+      <span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:#e6a817;"></span>
+      ממתין לאישור
+    </span>
+    <span class="d-flex align-items-center gap-1">
+      <span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:#dc3545;"></span>
+      בקשת ביטול
+    </span>
+    <span class="d-flex align-items-center gap-1">
+      <span style="display:inline-block;width:14px;height:14px;border-radius:3px;background:#0d6efd;color:#fff;font-size:.65rem;font-weight:700;text-align:center;line-height:14px;">&#10004;</span>
+      טיפול בוצע
+    </span>
+    <span class="d-flex align-items-center gap-1">
+      <span style="display:inline-block;width:14px;height:14px;border-radius:3px;background:#6f42c1;color:#fff;font-size:.65rem;font-weight:700;text-align:center;line-height:14px;">&#8362;</span>
+      המטופל דיווח על תשלום
+    </span>
+    <span class="d-flex align-items-center gap-1">
+      <span style="display:inline-block;width:14px;height:14px;border-radius:3px;background:#198754;color:#fff;font-size:.65rem;font-weight:700;text-align:center;line-height:14px;">&#8362;</span>
+      תשלום אושר
+    </span>
+  </div>
+</div>
+
+<!-- ============ Appointment Details Modal ============ -->
+<div class="modal fade" id="apptModal" tabindex="-1" aria-labelledby="apptModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="apptModalLabel">פרטי תור</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3 d-flex align-items-center gap-2">
+          <strong>מטופל:</strong>
+          <span id="apptModalName" class="fw-semibold fs-5"></span>
+        </div>
+        <div class="mb-2">
+          <strong>תאריך:</strong> <span id="apptModalDate"></span>
+        </div>
+        <div class="mb-3">
+          <strong>שעה:</strong> <span id="apptModalTime"></span>
+        </div>
+        <div>
+          <strong>סטטוס:</strong>&nbsp;
+          <span id="apptModalStatus" class="badge fs-6"></span>
+        </div>
+
+        <!-- Conflict warning (flashing red) -->
+        <div id="apptConflictWarning" class="d-none mt-3">
+          <div class="alert alert-danger mb-0 py-2 d-flex align-items-center gap-2 conflict-flash">
+            <span style="font-size:1.3rem;">&#9888;</span>
+            <div>
+              <strong>חפיפה!</strong>
+              <span id="apptConflictText"></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── Actions section (all right-click options) ── -->
+        <div id="apptActionsSection" class="mt-3 pt-3 border-top">
+
+          <!-- 1. Treatment toggle -->
+          <div class="d-flex align-items-center gap-2 mb-3">
+            <button type="button" id="apptTreatedBtn" class="btn btn-sm px-3"
+                    onclick="toggleModalTreated()" style="font-size:.9rem;">
+              <span id="apptTreatedIcon">&#9675;</span> טיפול בוצע
+            </button>
+          </div>
+
+          <!-- 2. Payment section -->
+          <div id="apptPaymentSection">
+            <!-- When not treated yet: disabled hint -->
+            <div id="apptPaymentDisabled" class="d-flex align-items-center gap-2 mb-2"
+                 style="opacity:.45;">
+              <span style="color:#198754;font-size:1rem;">&#9675;</span>
+              <span class="small text-muted">תשלום</span>
+              <span style="font-size:.72rem;color:#adb5bd;margin-right:auto;">סמן תחילה שטיפול בוצע</span>
+            </div>
+            <!-- When treated: payment method buttons -->
+            <div id="apptPaymentRow" style="display:none !important;">
+              <div class="d-flex align-items-center gap-2 mb-2">
+                <span style="color:#198754;font-size:1rem;" id="apptPaidIcon">&#9675;</span>
+                <span class="small fw-semibold text-muted">תשלום:</span>
+              </div>
+              <div class="d-flex gap-2 flex-wrap mb-2 me-4">
+                <button type="button" class="btn btn-outline-success btn-sm modal-pay-btn" data-method="bit">ביט</button>
+                <button type="button" class="btn btn-outline-success btn-sm modal-pay-btn" data-method="paybox">פייבוקס</button>
+                <button type="button" class="btn btn-outline-success btn-sm modal-pay-btn" data-method="cash">מזומן</button>
+                <button type="button" class="btn btn-outline-success btn-sm modal-pay-btn" data-method="bank">העברה בנקאית</button>
+              </div>
+              <!-- Cancel payment (shown only when already paid) -->
+              <div id="apptCancelPayRow" class="d-none mb-2">
+                <button type="button" id="apptCancelPayBtn" class="btn btn-outline-danger btn-sm"
+                        style="font-size:.8rem;">
+                  &#10005; בטל תשלום
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- 3. Patient-reported payment info (purple) -->
+          <div id="apptPatientPayInfo" class="d-none mb-2">
+            <div style="background:#f3e8ff;border:2px solid #c084fc;border-radius:10px;padding:10px 14px;">
+              <div class="d-flex align-items-center gap-2 mb-1">
+                <span style="font-size:1.1rem;">&#8362;</span>
+                <span style="font-weight:700;color:#7c3aed;font-size:.95rem;" id="apptPatientPayTitle">המטופל דיווח על תשלום</span>
+              </div>
+              <div style="font-size:.82rem;color:#6d28d9;margin-bottom:8px;" id="apptPatientPayText"></div>
+              <div class="d-flex gap-2 flex-wrap">
+                <button type="button" class="btn btn-sm modal-confirm-pay-btn" data-method="bit"
+                        style="background:#7c3aed;color:#fff;border:none;border-radius:6px;font-size:.8rem;font-weight:600;padding:5px 12px;">
+                  &#10003; אשר ביט
+                </button>
+                <button type="button" class="btn btn-sm modal-confirm-pay-btn" data-method="paybox"
+                        style="background:#7c3aed;color:#fff;border:none;border-radius:6px;font-size:.8rem;font-weight:600;padding:5px 12px;">
+                  &#10003; אשר פייבוקס
+                </button>
+                <button type="button" class="btn btn-sm modal-confirm-pay-btn" data-method="cash"
+                        style="background:#7c3aed;color:#fff;border:none;border-radius:6px;font-size:.8rem;font-weight:600;padding:5px 12px;">
+                  &#10003; אשר מזומן
+                </button>
+                <button type="button" class="btn btn-sm modal-confirm-pay-btn" data-method="bank"
+                        style="background:#7c3aed;color:#fff;border:none;border-radius:6px;font-size:.8rem;font-weight:600;padding:5px 12px;">
+                  &#10003; אשר העברה
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Reschedule inline form -->
+        <div id="rescheduleSection" class="mt-3 pt-3 border-top" style="display:none;">
+          <div class="row g-2 align-items-end">
+            <div class="col">
+              <label class="form-label small mb-1">תאריך חדש</label>
+              <input type="date" id="rescheduleDate" class="form-control form-control-sm" />
+            </div>
+            <div class="col">
+              <label class="form-label small mb-1">שעה חדשה</label>
+              <input type="time" id="rescheduleTime" class="form-control form-control-sm" step="900" />
+            </div>
+            <div class="col-auto">
+              <button type="button" class="btn btn-warning btn-sm" onclick="submitReschedule()">
+                &#8634; שנה
+              </button>
+            </div>
+          </div>
+          <div id="rescheduleError" class="alert alert-danger d-none small mt-2 mb-0"></div>
+        </div>
+      </div>
+      <div class="modal-footer gap-2">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">סגור</button>
+        <button type="button" id="apptRescheduleToggleBtn" class="btn btn-outline-secondary"
+                onclick="toggleReschedule()">
+          &#8634; שנה זמן
+        </button>
+        <button type="button" id="apptDeleteBtn" class="btn btn-outline-danger"
+                onclick="deleteFromModal()">
+          &#128465; מחק תור
+        </button>
+        <button type="button" id="apptRejectBtn" class="btn btn-outline-danger">
+          &#10007; דחה תור
+        </button>
+        <button type="button" id="apptApproveBtn" class="btn btn-success">
+          &#10003; אשר תור
+        </button>
+        <button type="button" id="apptApproveCancelBtn" class="btn btn-danger" style="display:none;">
+          &#10003; אשר ביטול
+        </button>
+        <button type="button" id="apptRejectCancelBtn" class="btn btn-outline-secondary" style="display:none;">
+          &#10007; דחה בקשת ביטול
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- ============ Create Appointment Modal ============ -->
+<div class="modal fade" id="createApptModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">&#128197; קביעת תור ידנית</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+
+        <!-- Walk-in toggle -->
+        <div class="mb-3 p-2 rounded" style="background:#fff3e0;border:1px solid #ffe0b2;">
+          <div class="form-check form-switch mb-0">
+            <input class="form-check-input" type="checkbox" id="walkInToggle"
+                   role="switch" onchange="toggleWalkIn()" />
+            <label class="form-check-label fw-semibold" for="walkInToggle"
+                   style="color:#e65100;">&#128694; תור מזדמן (ללא מטופל רשום)</label>
+          </div>
+          <div id="walkInNote" class="d-none mt-1" style="font-size:.8rem;color:#bf360c;">
+            התור יכנס לדוחות בתור "תור מזדמן" ללא שם. ניתן לסמן תשלום וטיפול בוצע כרגיל.
+          </div>
+        </div>
+
+        <!-- Patient selector (hidden in walk-in mode) -->
+        <div class="mb-3" id="patientInputGroup">
+          <label class="form-label fw-semibold">בחר מטופל <span class="text-danger">*</span></label>
+          <input type="text" id="createPatientInput" list="patientDatalist"
+                 class="form-control" placeholder="הקלד שם או מזהה..." autocomplete="off" />
+          <datalist id="patientDatalist">
+            {% for p in patients %}
+            <option value="{{ p.name }} ({{ p.anonymous_id }})"></option>
+            {% endfor %}
+          </datalist>
+          <div class="form-text text-muted">בחר מהרשימה — מוצג: שם (מזהה)</div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold">תאריך <span class="text-danger">*</span></label>
+          <input type="date" id="createDateInput" class="form-control" />
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold">שעה <span class="text-danger">*</span></label>
+          <input type="time" id="createTimeInput" class="form-control" step="900" />
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold">משך טיפול</label>
+          <div class="d-flex align-items-center gap-3">
+            <button type="button" class="btn btn-outline-secondary btn-sm"
+                    onclick="changeDuration(-5)" style="width:36px;padding:0;">−</button>
+            <span id="durationDisplay" class="fw-bold fs-5 text-center"
+                  style="min-width:60px;">45</span>
+            <span class="text-muted small">דקות</span>
+            <button type="button" class="btn btn-outline-secondary btn-sm"
+                    onclick="changeDuration(5)" style="width:36px;padding:0;">+</button>
+          </div>
+        </div>
+        <div id="createApptError" class="alert alert-danger d-none small mb-0"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">ביטול</button>
+        <button type="button" class="btn btn-primary" onclick="submitCreateAppt()">&#10003; קבע תור</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+var DEFAULT_DURATION = {{ default_duration }};
+var AVAILABILITY = {{ availability_json|safe }};
+var IS_OFFLINE = {{ 'true' if demo_mode else 'false' }};
+var ANON_IDS = {{ anonymous_ids_json|safe }};
+</script>
+<script src="{{ url_for('static', filename='vendor/fullcalendar.min.js') }}"></script>
+<script src="{{ url_for('static', filename='vendor/fullcalendar-he.min.js') }}"></script>
+<script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+{% endblock %}

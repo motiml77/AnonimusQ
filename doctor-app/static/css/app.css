@@ -1,0 +1,263 @@
+/* ========================
+   AnonimousQ Doctor App CSS
+   ======================== */
+
+body {
+  background-color: #f8f9fa;
+  font-family: 'Segoe UI', Arial, sans-serif;
+}
+
+/* Navbar */
+.navbar .nav-link {
+  font-size: 0.95rem;
+  padding: 0.4rem 0.8rem;
+  border-radius: 6px;
+  transition: background 0.15s;
+}
+.navbar .nav-link:hover {
+  background-color: rgba(255, 255, 255, 0.15);
+}
+.navbar .nav-link.active {
+  background-color: rgba(255, 255, 255, 0.2);
+}
+
+/* Cards */
+.card {
+  border: none;
+  border-radius: 10px;
+}
+.card-header {
+  background-color: #f0f4ff;
+  border-bottom: 1px solid #dde4f0;
+  border-radius: 10px 10px 0 0 !important;
+  font-size: 1rem;
+}
+
+/* ==============================
+   Calendar container
+   ============================== */
+#calendar {
+  background: #ffffff;
+  border-radius: 12px;
+  padding: 16px;
+  padding-bottom: 20px;
+  margin-bottom: 30px;
+  box-shadow: 0 1px 8px rgba(0,0,0,0.07);
+}
+
+/* ── Toolbar ── */
+.fc .fc-toolbar {
+  margin-bottom: 12px !important;
+}
+.fc .fc-toolbar-title {
+  font-size: 0.92rem !important;
+  font-weight: 700;
+  color: #1a1a2e;
+}
+.fc .fc-button {
+  font-size: 0.66rem !important;
+  padding: 4px 11px !important;
+  border-radius: 8px !important;
+  font-weight: 600;
+  transition: all 0.15s;
+}
+.fc .fc-button-primary {
+  background-color: #0d6efd !important;
+  border-color: #0d6efd !important;
+}
+.fc .fc-button-primary:not(.fc-button-active):not(:disabled):hover {
+  background-color: #0b5ed7 !important;
+  border-color: #0a58ca !important;
+  box-shadow: 0 2px 6px rgba(13,110,253,0.3);
+}
+.fc .fc-button-active {
+  background-color: #0a58ca !important;
+  border-color: #084298 !important;
+  box-shadow: inset 0 2px 4px rgba(0,0,0,0.15);
+}
+
+/* ── Column headers (day name + date number from JS) ── */
+.fc .fc-col-header-cell-cushion {
+  text-decoration: none !important;
+  padding: 0;
+}
+.fc .fc-col-header-cell {
+  border-bottom: 2px solid #e2e8f0;
+  vertical-align: middle;
+  padding: 4px 0;
+}
+.fc .fc-col-header-cell.fc-day-today {
+  background-color: rgba(13, 110, 253, 0.06) !important;
+}
+
+/* ── Today column highlight ── */
+.fc .fc-day-today {
+  background-color: rgba(255, 214, 0, 0.08) !important;
+}
+.fc .fc-timegrid-col.fc-day-today {
+  background-color: rgba(13, 110, 253, 0.03) !important;
+}
+
+/* ── Time slot labels ── */
+.fc .fc-timegrid-slot-label-cushion {
+  font-weight: 700;
+  font-size: 0.64rem;
+  color: #64748b;
+  padding: 0 8px;
+}
+
+/* ── Grid lines ── */
+.fc .fc-timegrid-slot {
+  height: 1.76em;          /* 20% smaller row height */
+}
+.fc .fc-timegrid-slot-minor {
+  border-top-style: dotted;
+  border-top-color: #f1f5f9;
+}
+
+/* ── Non-working hours ── */
+.fc .fc-non-business {
+  background: repeating-linear-gradient(
+    135deg,
+    transparent,
+    transparent 4px,
+    rgba(0,0,0,0.015) 4px,
+    rgba(0,0,0,0.015) 8px
+  );
+}
+
+/* ── Now indicator (red line) ── */
+.fc .fc-timegrid-now-indicator-line {
+  border-color: #ef4444;
+  border-width: 2px;
+}
+.fc .fc-timegrid-now-indicator-arrow {
+  border-color: #ef4444;
+}
+
+/* ══════════════════════════════
+   Events
+   ══════════════════════════════ */
+.fc .fc-event {
+  border-radius: 5px;
+  font-size: 0.67rem;
+  border: none !important;
+  border-right: 3px solid rgba(255,255,255,0.5) !important;   /* RTL: right accent */
+  cursor: pointer;
+  transition: box-shadow 0.15s, transform 0.1s;
+}
+.fc .fc-event:hover {
+  box-shadow: 0 2px 8px rgba(0,0,0,0.18);
+  transform: translateY(-1px);
+  z-index: 10 !important;
+}
+.fc .fc-daygrid-event {
+  white-space: normal;
+}
+
+/* Event inner content */
+.fc .fc-timegrid-event .fc-event-main {
+  padding: 3px 6px;
+  overflow: hidden;
+}
+.fc .fc-timegrid-event .fc-event-time {
+  font-size: 0.58rem;
+  font-weight: 700;
+  opacity: 0.85;
+  margin-bottom: 1px;
+}
+.fc .fc-timegrid-event .fc-event-title {
+  font-size: 0.67rem;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+
+/* Pending events – amber pulsing border */
+.fc-event.event-pending {
+  border: 2px solid #e6a817 !important;
+  animation: pendingPulse 2s ease-in-out infinite;
+}
+@keyframes pendingPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255, 193, 7, 0.5); }
+  50%       { box-shadow: 0 0 0 6px rgba(255, 193, 7, 0);  }
+}
+
+/* Conflicting overlapping events – red pulsing glow (overrides pending) */
+.fc-event.event-conflict {
+  border: 2px solid #dc3545 !important;
+  animation: conflictPulse 1s ease-in-out infinite;
+}
+@keyframes conflictPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(220, 53, 69, 0.6); }
+  50%      { box-shadow: 0 0 0 8px rgba(220, 53, 69, 0);  }
+}
+
+/* ── Month view events ── */
+.fc .fc-daygrid-day-number {
+  font-weight: 900;
+  font-size: 0.8rem;
+  padding: 3px 6px;
+  color: #1a1a1a;
+}
+.fc .fc-daygrid-day.fc-day-today .fc-daygrid-day-number {
+  background: #0d6efd;
+  color: #fff;
+  border-radius: 50%;
+  width: 1.3rem;
+  height: 1.3rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ==============================
+   Non-calendar UI
+   ============================== */
+
+
+/* Anonymous patient name blur – eye icon to reveal */
+.anon-blur {
+  filter: blur(5px);
+  transition: filter 0.2s;
+  user-select: none;
+}
+.anon-blur.revealed {
+  filter: none;
+}
+.anon-eye:hover {
+  opacity: 1 !important;
+}
+
+/* Table */
+.table th {
+  font-weight: 600;
+  font-size: 0.875rem;
+  color: #495057;
+}
+
+/* Monospace small */
+.font-monospace.small {
+  font-size: 0.78rem;
+}
+
+/* Online booking disabled – pulsing red button */
+@keyframes btnDisabledPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(220, 53, 69, 0.5); }
+  50%      { box-shadow: 0 0 0 10px rgba(220, 53, 69, 0);  }
+}
+
+/* Alerts */
+.alert {
+  font-size: 0.92rem;
+}
+
+/* Conflict warning flash in appointment modal */
+.conflict-flash {
+  animation: conflictFlash 1s ease-in-out infinite;
+  border: 2px solid #dc3545 !important;
+}
+@keyframes conflictFlash {
+  0%, 100% { background-color: #f8d7da; }
+  50%      { background-color: #f1aeb5; }
+}

@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}AnonimousQ{% endblock %} – מערכת תורים</title>
+  <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}" />
+  <meta name="theme-color" content="#0d6efd" />
+  <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='img/logo-32.png') }}" />
+  <link rel="icon" type="image/png" sizes="192x192" href="{{ url_for('static', filename='img/logo-192.png') }}" />
+  <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='img/logo-180.png') }}" />
+  <link rel="stylesheet"
+        href="{{ url_for('static', filename='vendor/bootstrap.rtl.min.css') }}" />
+  <link rel="stylesheet"
+        href="{{ url_for('static', filename='css/app.css') }}" />
+  {% block head %}{% endblock %}
+</head>
+<body>
+
+{% if session.authenticated %}
+<nav class="navbar navbar-expand-lg navbar-dark bg-primary px-4 py-2">
+  <a class="navbar-brand fw-bold fs-4" href="{{ url_for('dashboard') }}">
+    &#127973; AnonimousQ
+  </a>
+  {% if session.username %}
+  <span class="badge bg-light text-primary ms-3 fs-6">{{ session.username }}</span>
+  {% endif %}
+  <div class="navbar-nav flex-row gap-3 me-auto">
+    <a class="nav-link px-2 {% if request.endpoint == 'dashboard' %}active fw-bold{% endif %}"
+       href="{{ url_for('dashboard') }}">לוח שנה</a>
+    <a class="nav-link px-2 {% if request.endpoint in ('patients', 'patient_detail') %}active fw-bold{% endif %}"
+       href="{{ url_for('patients') }}">מטופלים</a>
+    <a class="nav-link px-2 {% if request.endpoint == 'settings' %}active fw-bold{% endif %}"
+       href="{{ url_for('settings') }}">הגדרות</a>
+    <a class="nav-link px-2 {% if request.endpoint == 'reports' %}active fw-bold{% endif %}"
+       href="{{ url_for('reports') }}">&#128202; דוחות</a>
+    <a class="nav-link px-2 text-warning" href="{{ url_for('logout') }}">יציאה</a>
+  </div>
+</nav>
+{% endif %}
+
+<div class="container-fluid py-3 px-4">
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    {% for category, message in messages %}
+    <div class="alert alert-{{ 'danger' if category == 'error' else ('warning' if category == 'warning' else 'success') }} alert-dismissible fade show" role="alert">
+      {{ message }}
+      <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+    {% endfor %}
+  {% endif %}
+  {% endwith %}
+
+  {% block content %}{% endblock %}
+
+</div>
+
+<script src="{{ url_for('static', filename='vendor/bootstrap.bundle.min.js') }}"></script>
+<script>
+// Auto-dismiss flash alerts after 20 seconds
+document.querySelectorAll('.alert-dismissible').forEach(function(alert) {
+  setTimeout(function() {
+    alert.classList.remove('show');
+    setTimeout(function() { alert.remove(); }, 300);
+  }, 20000);
+});
+// Disable default browser context menu globally — only custom menus appear
+document.addEventListener('contextmenu', function (e) {
+  // Allow default only on text inputs/textareas (for paste etc.)
+  var tag = (e.target.tagName || '').toLowerCase();
+  if (tag === 'input' || tag === 'textarea') return;
+  e.preventDefault();
+});
+</script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

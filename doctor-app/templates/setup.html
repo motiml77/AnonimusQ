@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% block title %}הגדרת חשבון{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center mt-5">
+  <div class="col-md-5 col-lg-4">
+    <div class="card shadow">
+      <div class="card-body p-4">
+        <h4 class="card-title text-center mb-1">&#127973; AnonimousQ</h4>
+        <p class="text-center text-muted small mb-4">מערכת תורים אנונימיים</p>
+
+        <!-- Tab toggle: New / Existing -->
+        <ul class="nav nav-pills nav-fill mb-3" role="tablist">
+          <li class="nav-item" role="presentation">
+            <button class="nav-link active" data-bs-toggle="pill" data-bs-target="#newAccount"
+                    type="button" role="tab">חשבון חדש</button>
+          </li>
+          <li class="nav-item" role="presentation">
+            <button class="nav-link" data-bs-toggle="pill" data-bs-target="#existingAccount"
+                    type="button" role="tab">יש לי חשבון</button>
+          </li>
+        </ul>
+
+        <div class="tab-content">
+          <!-- ====== New Account Tab ====== -->
+          <div class="tab-pane fade show active" id="newAccount" role="tabpanel">
+            <div class="alert alert-info py-2 small mb-3">
+              <strong>&#127760; נדרש חיבור לאינטרנט</strong> להרשמה ראשונה.<br>
+              לאחר ההרשמה, תוכל להתחבר גם ללא אינטרנט.
+            </div>
+            <p class="text-muted small mb-3">
+              שם המשתמש חייב להיות ייחודי — ישמש כמזהה שלך במערכת.<br>
+              המטופלים יגיעו לאתר שלך דרך הקישור:
+              <code>anonimusq.motiml77.workers.dev?doctor=<strong>[שם המשתמש]</strong></code>
+            </p>
+            <form method="post">
+              <input type="hidden" name="mode" value="register" />
+              <div class="mb-3">
+                <label class="form-label">שם משתמש (לטיני, ללא רווחים) <span class="text-danger">*</span></label>
+                <input type="text" name="username" class="form-control font-monospace"
+                       placeholder="לדוגמה: dr-cohen" required autofocus
+                       pattern="[a-zA-Z0-9_\-]+" minlength="3" maxlength="40" />
+                <div class="form-text">ניתן להשתמש באותיות לטיניות, ספרות, מקף וקו-תחתי</div>
+              </div>
+              <div class="mb-3">
+                <label class="form-label">סיסמא <span class="text-danger">*</span></label>
+                <input type="password" name="password" class="form-control"
+                       placeholder="לפחות 6 תווים" required />
+              </div>
+              <div class="mb-4">
+                <label class="form-label">אימות סיסמא <span class="text-danger">*</span></label>
+                <input type="password" name="confirm" class="form-control"
+                       placeholder="הזן שוב" required />
+              </div>
+              <button type="submit" class="btn btn-primary w-100 setup-btn">
+                <span class="btn-label">צור חשבון והתחל</span>
+                <span class="btn-loading d-none">
+                  <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                  יוצר חשבון...
+                </span>
+              </button>
+            </form>
+          </div>
+
+          <!-- ====== Existing Account Tab ====== -->
+          <div class="tab-pane fade" id="existingAccount" role="tabpanel">
+            <div class="alert alert-info py-2 small mb-3">
+              <strong>&#127760; נדרש חיבור לאינטרנט</strong> לחיבור חשבון קיים.<br>
+              לאחר החיבור, תוכל להתחבר גם ללא אינטרנט.
+            </div>
+            <p class="text-muted small mb-3">
+              אם כבר יש לך חשבון (למשל ממחשב אחר), הזן את שם המשתמש והסיסמא שהגדרת.
+            </p>
+            <form method="post">
+              <input type="hidden" name="mode" value="existing" />
+              <div class="mb-3">
+                <label class="form-label">שם משתמש <span class="text-danger">*</span></label>
+                <input type="text" name="username" class="form-control font-monospace"
+                       placeholder="שם המשתמש שהגדרת" required
+                       pattern="[a-zA-Z0-9_\-]+" minlength="3" maxlength="40" />
+              </div>
+              <div class="mb-4">
+                <label class="form-label">סיסמא <span class="text-danger">*</span></label>
+                <input type="password" name="password" class="form-control"
+                       placeholder="הסיסמא שהגדרת" required />
+              </div>
+              <button type="submit" class="btn btn-success w-100 setup-btn">
+                <span class="btn-label">התחבר לחשבון קיים</span>
+                <span class="btn-loading d-none">
+                  <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                  מתחבר...
+                </span>
+              </button>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+  document.querySelectorAll("form").forEach(function(form) {
+    form.addEventListener("submit", function() {
+      var btn = form.querySelector(".setup-btn");
+      if (btn) {
+        btn.disabled = true;
+        btn.querySelector(".btn-label").classList.add("d-none");
+        btn.querySelector(".btn-loading").classList.remove("d-none");
+      }
+    });
+  });
+  {% if switch_to_existing %}
+  // Auto-switch to "existing account" tab when username already exists
+  var existingTab = document.querySelector('[data-bs-target="#existingAccount"]');
+  if (existingTab) { existingTab.click(); }
+  {% endif %}
+</script>
+{% endblock %}

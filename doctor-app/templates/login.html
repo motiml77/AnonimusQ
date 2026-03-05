@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}התחברות{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center mt-5">
+  <div class="col-md-5 col-lg-4">
+    <div class="card shadow">
+      <div class="card-body p-4">
+        <h4 class="card-title text-center mb-1">&#127973; AnonimousQ</h4>
+        <p class="text-center text-muted small mb-4">מערכת תורים אנונימיים</p>
+        <h5 class="mb-3">התחברות</h5>
+        <form method="post">
+          <div class="mb-3">
+            <label class="form-label">שם משתמש</label>
+            <input type="text" name="username" class="form-control font-monospace"
+                   placeholder="שם המשתמש שהגדרת" required autofocus autocomplete="username" />
+          </div>
+          <div class="mb-4">
+            <label class="form-label">סיסמא</label>
+            <input type="password" name="password" class="form-control"
+                   placeholder="הזן סיסמא" required autocomplete="current-password" />
+          </div>
+          <button type="submit" id="login-btn" class="btn btn-primary w-100">
+            <span id="btn-text">כניסה</span>
+            <span id="btn-spinner" class="d-none">
+              <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+              מתחבר...
+            </span>
+          </button>
+        </form>
+        <script>
+          document.querySelector("form").addEventListener("submit", function() {
+            var btn = document.getElementById("login-btn");
+            btn.disabled = true;
+            document.getElementById("btn-text").classList.add("d-none");
+            document.getElementById("btn-spinner").classList.remove("d-none");
+          });
+        </script>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,74 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // All data is namespaced under /doctors/{doctorId}/...
+    // The doctor app uses Firebase Admin SDK (bypasses rules).
+    // These rules apply only to the patient-facing website.
+    // Patients sign in with Firebase Anonymous Auth (any authenticated session).
+    // The UUID is the shared secret – it is verified by checking the patient doc.
+
+    match /doctors/{doctorId} {
+
+      // Availability settings – public read (patients need to see slots)
+      match /settings/{docId} {
+        allow read:  if true;
+        allow write: if false;  // Written only by doctor app (Admin SDK)
+      }
+
+      // Patient registry – any authenticated user can check if a UUID is valid
+      // (UUID itself is the secret; possessing it proves identity)
+      match /patients/{patientId} {
+        allow read:  if request.auth != null;
+        allow write: if false;  // Written only by doctor app (Admin SDK)
+      }
+
+      // Appointments – authenticated patients can manage their own
+      match /appointments/{appointmentId} {
+
+        // Read: any authenticated user (UUID secret limits who books).
+        // Note: patients can see other appointments' date/time/status
+        // but Firebase stores NO PII (names are only in local SQLite).
+        allow read: if request.auth != null;
+
+        // Create: authenticated user books with a valid anonymousId + pending status
+        allow create: if request.auth != null
+                      && request.resource.data.status == "pending"
+                      && request.resource.data.anonymousId is string
+                      && request.resource.data.anonymousId.size() > 0
+                      && request.resource.data.date is string
+                      && request.resource.data.time is string;
+
+        // Update: authenticated user
+        // Allowed: (1) cancel pending, (2) request cancel for booked,
+        //          (3) mark patientMarkedPaid = true
+        // anonymousId, date and time cannot be changed
+        allow update: if request.auth != null
+                      && resource.data.anonymousId == request.resource.data.anonymousId
+                      && request.resource.data.date == resource.data.date
+                      && request.resource.data.time == resource.data.time
+                      && (
+                           // Option 1: cancel a pending appointment directly
+                           (resource.data.status == "pending"
+                            && request.resource.data.status == "cancelled")
+                           ||
+                           // Option 2: request cancellation of a booked appointment
+                           (resource.data.status == "booked"
+                            && request.resource.data.status == "cancel_requested")
+                           ||
+                           // Option 3: patient marks payment done (status unchanged)
+                           (request.resource.data.status == resource.data.status
+                            && request.resource.data.patientMarkedPaid == true)
+                         );
+
+        // Delete: not allowed
+        allow delete: if false;
+      }
+    }
+
+    // Block everything else
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

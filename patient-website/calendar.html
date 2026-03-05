@@ -1,0 +1,773 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>לוח תורים</title>
+  <link rel="stylesheet" href="styles.css" />
+  <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.css" rel="stylesheet" />
+</head>
+<body>
+  <header class="app-header">
+    <div class="header-content">
+      <div class="header-logo">
+        <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+          <line x1="16" y1="2" x2="16" y2="6"/>
+          <line x1="8" y1="2" x2="8" y2="6"/>
+          <line x1="3" y1="10" x2="21" y2="10"/>
+        </svg>
+        <span>לוח תורים</span>
+      </div>
+      <button id="logout-btn" class="btn-ghost">יציאה</button>
+    </div>
+  </header>
+
+  <!-- Loading overlay -->
+  <div id="loading-overlay" style="position:fixed;inset:0;background:#fff;z-index:9999;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;">
+    <div style="width:48px;height:48px;border:4px solid #e0e0e0;border-top-color:#4CAF50;border-radius:50%;animation:spin .8s linear infinite;"></div>
+    <div style="color:#666;font-size:.95rem;">טוען נתונים...</div>
+  </div>
+  <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
+
+  <main class="calendar-main">
+    <section class="my-appointments-section">
+      <div id="payment-info"></div>
+      <h2>התורים שלי</h2>
+      <div id="my-appointments-list">
+        <p class="loading-text">טוען תורים...</p>
+      </div>
+
+      <h2 style="margin-top:28px;">היסטוריית ביקורים</h2>
+      <div id="history-list">
+        <p class="loading-text">טוען היסטוריה...</p>
+      </div>
+    </section>
+
+    <section class="calendar-section">
+      <h2>קביעת תור חדש</h2>
+      <p class="calendar-hint">לחץ על תאריך לראות שעות פנויות</p>
+      <div id="calendar"></div>
+    </section>
+  </main>
+
+  <div id="slots-modal" class="modal hidden">
+    <div class="modal-overlay" id="modal-overlay"></div>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="modal-date-title">בחר שעה</h3>
+        <button class="modal-close" id="modal-close">✕</button>
+      </div>
+      <div id="slots-list" class="slots-list"></div>
+      <p style="text-align:center;color:#888;font-size:.82rem;margin:10px 0 4px;">
+        ⏳ קביעת התור מותנית באישור המטפל
+      </p>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.js"></script>
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+    import {
+      getFirestore, collection, query, where, getDocs,
+      addDoc, doc, updateDoc, getDoc, onSnapshot, serverTimestamp
+    } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+    import { getAuth, signInAnonymously }
+      from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+    import { firebaseConfig } from "./firebase-config.js";
+
+    // --- Auth check ---
+    const patientId = sessionStorage.getItem("patientId");
+    const doctorId  = sessionStorage.getItem("doctorId");
+    if (!patientId || !doctorId) {
+      window.location.href = "index.html";
+    }
+
+    // --- Firebase init ---
+    const app  = initializeApp(firebaseConfig);
+    const db   = getFirestore(app);
+    const auth = getAuth(app);
+
+    // Helper: collection under /doctors/{doctorId}/...
+    const drCol = (name) => collection(db, "doctors", doctorId, name);
+    const drDoc = (col, id) => doc(db, "doctors", doctorId, col, id);
+
+    // --- XSS sanitization helper ---
+    function esc(s) {
+      const d = document.createElement("div");
+      d.textContent = String(s ?? "");
+      return d.innerHTML;
+    }
+
+    // --- State ---
+    let availability    = null;
+    let bookedSlots     = [];
+    let myAppointments  = [];   // active (non-treated, future) appointments
+    let myHistory       = [];   // past OR treated appointments
+    let paymentSettings = null;
+    let patientPrice    = 0;
+    let _bookingDisabled = false;   // tracks current booking state for live toggle
+    let _calendarInited  = false;   // whether calendar was rendered
+
+    // --- DOM ---
+    const myList      = document.getElementById("my-appointments-list");
+    const slotsModal  = document.getElementById("slots-modal");
+    const modalOverlay= document.getElementById("modal-overlay");
+    const modalClose  = document.getElementById("modal-close");
+    const modalTitle  = document.getElementById("modal-date-title");
+    const slotsList   = document.getElementById("slots-list");
+    const toast       = document.getElementById("toast");
+
+    document.getElementById("logout-btn").addEventListener("click", () => {
+      sessionStorage.clear();
+      window.location.href = "index.html";
+    });
+
+    modalClose.addEventListener("click",   closeModal);
+    modalOverlay.addEventListener("click", closeModal);
+
+    function showToast(msg, type = "success") {
+      toast.textContent = msg;
+      toast.className = `toast toast-${type}`;
+      toast.classList.remove("hidden");
+      setTimeout(() => toast.classList.add("hidden"), 3500);
+    }
+
+    // --- Load availability from /doctors/{doctorId}/settings/availability ---
+    async function loadAvailability() {
+      const demoMode = sessionStorage.getItem("demoMode") === "true";
+      const DEFAULT_AVAIL = {
+        workingDays:    [0, 1, 2, 3, 4],
+        workingHours:   { start: "09:00", end: "17:00" },
+        slotDurationMin: 45,
+        blockedDates:   [],
+      };
+      try {
+        const snap = await getDoc(drDoc("settings", "availability"));
+        availability = snap.exists() ? snap.data() : DEFAULT_AVAIL;
+      } catch (err) {
+        console.warn("loadAvailability fallback:", err);
+        availability = DEFAULT_AVAIL;
+      }
+      if (demoMode) availability = DEFAULT_AVAIL;
+    }
+
+    // --- Load appointments from /doctors/{doctorId}/appointments ---
+    async function loadAppointments() {
+      const today = new Date().toISOString().split("T")[0];
+      const demoMode = sessionStorage.getItem("demoMode") === "true";
+      if (demoMode) {
+        bookedSlots = []; myAppointments = []; myHistory = [];
+        return;
+      }
+      try {
+        // Fetch booked + pending + cancel_requested (active / not cancelled)
+        const [snapBooked, snapPending, snapCancelReq] = await Promise.all([
+          getDocs(query(drCol("appointments"), where("status", "==", "booked"))),
+          getDocs(query(drCol("appointments"), where("status", "==", "pending"))),
+          getDocs(query(drCol("appointments"), where("status", "==", "cancel_requested"))),
+        ]);
+        const all = [
+          ...snapBooked.docs.map(d => ({ id: d.id, ...d.data() })),
+          ...snapPending.docs.map(d => ({ id: d.id, ...d.data() })),
+          ...snapCancelReq.docs.map(d => ({ id: d.id, ...d.data() })),
+        ];
+        bookedSlots = all;
+        _splitMyAppointments(all, today);
+      } catch (err) {
+        console.warn("loadAppointments demo fallback:", err);
+        bookedSlots = []; myAppointments = []; myHistory = [];
+      }
+    }
+
+    /** Split patient's appointments into active vs history.
+     *  History = past date OR treated (even if today/future).
+     *  Active  = future/today, not treated, not cancelled. */
+    function _splitMyAppointments(all, today) {
+      const mine = all.filter(a => a.anonymousId === patientId);
+      myAppointments = mine.filter(a =>
+        a.date >= today && !a.treated && a.status !== "cancelled"
+      );
+      myHistory = mine.filter(a =>
+        a.date < today || a.treated
+      ).sort((a, b) => (b.date + b.time).localeCompare(a.date + a.time));
+    }
+
+    function renderMyAppointments() {
+      // Toggle calendar visibility: hide if patient has any active appointment
+      _toggleCalendarVisibility();
+
+      if (myAppointments.length === 0) {
+        myList.innerHTML = '<p class="empty-text">אין לך תורים קבועים כרגע.</p>';
+        return;
+      }
+      const sorted = [...myAppointments].sort((a, b) =>
+        (a.date + a.time).localeCompare(b.date + b.time)
+      );
+
+      myList.innerHTML = sorted.map(appt => {
+        const dateObj = new Date(appt.date + "T" + appt.time);
+        const dateStr = dateObj.toLocaleDateString("he-IL", {
+          weekday: "long", year: "numeric", month: "long", day: "numeric"
+        });
+        const isPending = appt.status === "pending";
+        const isCancelReq = appt.status === "cancel_requested";
+        const cancelWasRejected = appt.cancelRejected === true;
+        let statusBadge;
+        if (isCancelReq) {
+          statusBadge = '<span class="status-cancel-req">🔴 בקשת ביטול נשלחה</span>';
+        } else if (isPending) {
+          statusBadge = '<span class="status-pending">🟡 ממתין לאישור מטפל</span>';
+        } else {
+          statusBadge = '<span class="status-booked">🟢 מאושר</span>';
+        }
+
+        let cancelBtn;
+        if (isCancelReq) {
+          cancelBtn = '<span style="font-size:.82rem;color:#dc3545;font-weight:600;">ממתין לאישור המטפל</span>';
+        } else if (cancelWasRejected) {
+          cancelBtn = '<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:6px 12px;text-align:center;">' +
+            '<span style="font-size:.8rem;color:#991b1b;font-weight:600;">בקשת הביטול נדחתה</span><br>' +
+            '<span style="font-size:.75rem;color:#b91c1c;">צור קשר עם המטפל לגבי ביטול התור</span>' +
+            '</div>';
+        } else {
+          cancelBtn = `<button class="btn-cancel" data-id="${esc(appt.id)}">ביטול תור</button>`;
+        }
+
+        return `
+          <div class="appointment-card ${isPending ? "pending" : ""} ${isCancelReq ? "cancel-requested" : ""}">
+            <div class="appt-info">
+              <span class="appt-date">${esc(dateStr)}</span>
+              <span class="appt-time">🕐 ${esc(appt.time)}</span>
+              ${statusBadge}
+            </div>
+            ${cancelBtn}
+          </div>`;
+      }).join("");
+
+      myList.querySelectorAll(".btn-cancel").forEach(btn => {
+        btn.addEventListener("click", () => cancelAppointment(btn.dataset.id));
+      });
+    }
+
+    /** Hide calendar section when patient has an active (pending/booked) appointment */
+    function _toggleCalendarVisibility() {
+      const calSection = document.querySelector('.calendar-section');
+      if (!calSection) return;
+      const hasActive = myAppointments.length > 0;
+      if (hasActive && !_bookingDisabled) {
+        // Replace calendar with message
+        calSection.innerHTML =
+          '<div style="background:#e0f2fe;border:2px solid #7dd3fc;border-radius:10px;padding:20px;text-align:center;">' +
+          '<div style="font-size:1.3rem;margin-bottom:8px;">📅</div>' +
+          '<div style="font-weight:700;font-size:1rem;color:#0369a1;">יש לך כבר תור פעיל</div>' +
+          '<div style="color:#0369a1;font-size:.85rem;margin-top:4px;">לא ניתן לקבוע תור נוסף עד שהתור הנוכחי יתקיים.<br>ניתן לבטל את התור ולקבוע חדש.</div>' +
+          '</div>';
+        _calendarInited = false;
+      } else if (!hasActive && !_bookingDisabled && !_calendarInited) {
+        // Restore calendar
+        calSection.innerHTML =
+          '<h2>קביעת תור חדש</h2>' +
+          '<p class="calendar-hint">לחץ על תאריך לראות שעות פנויות</p>' +
+          '<div id="calendar"></div>';
+        initCalendar();
+        _calendarInited = true;
+      }
+    }
+
+    const PATIENT_PAY_METHODS = {
+      bit:    '💳 ביט',
+      paybox: '💳 פייבוקס',
+      cash:   '💵 מזומן',
+      bank:   '🏦 העברה בנקאית',
+    };
+
+    function renderHistory() {
+      const histEl = document.getElementById("history-list");
+      if (!histEl) return;
+      if (myHistory.length === 0) {
+        histEl.innerHTML = '<p class="empty-text">אין היסטוריית ביקורים.</p>';
+        return;
+      }
+      const price = patientPrice || paymentSettings?.defaultPrice || 0;
+
+      histEl.innerHTML = myHistory.map(appt => {
+        const dateObj = new Date(appt.date + "T" + appt.time);
+        const dateStr = dateObj.toLocaleDateString("he-IL", {
+          weekday: "long", year: "numeric", month: "long", day: "numeric"
+        });
+
+        // Status line
+        let statusHtml = '';
+        if (appt.treated) {
+          statusHtml = '<span class="hist-badge hist-treated">✔ טיפול בוצע</span>';
+        } else {
+          statusHtml = '<span class="hist-badge hist-missing">ממתין לאישור טיפול</span>';
+        }
+
+        // Payment section
+        let paymentHtml = '';
+        if (appt.paid) {
+          const methodLabel = PATIENT_PAY_METHODS[appt.paymentMethod] || '';
+          paymentHtml = `<div class="hist-pay-done">✔ שולם${methodLabel ? ' – ' + esc(methodLabel) : ''}</div>`;
+        } else if (appt.patientMarkedPaid) {
+          const methodLabel = PATIENT_PAY_METHODS[appt.patientPaymentMethod] || '';
+          paymentHtml = `<div class="hist-pay-waiting">⏳ תשלום סומן${methodLabel ? ' (' + esc(methodLabel) + ')' : ''} – ממתין לאימות המטפל</div>`;
+        } else if (appt.treated) {
+          // Treated but not paid → show payment method selection
+          paymentHtml = `
+            <div class="pay-method-select" data-id="${esc(appt.id)}">
+              <div style="font-size:.82rem;font-weight:600;color:#2d7738;margin-bottom:6px;">
+                💳 בחר אמצעי תשלום${price ? ': <strong>' + esc(price) + '₪</strong>' : ''}
+              </div>
+              <div class="pay-method-btns">
+                <button class="pay-method-btn" data-method="bit">💳 ביט</button>
+                <button class="pay-method-btn" data-method="paybox">💳 פייבוקס</button>
+                <button class="pay-method-btn" data-method="cash">💵 מזומן</button>
+                <button class="pay-method-btn" data-method="bank">🏦 העברה</button>
+              </div>
+              <button class="pay-confirm-btn hidden" data-id="${esc(appt.id)}" disabled>✔ אישור תשלום</button>
+            </div>`;
+        }
+
+        return `
+          <div class="appointment-card history-card">
+            <div class="appt-info">
+              <span class="appt-date">${esc(dateStr)}</span>
+              <span class="appt-time">🕐 ${esc(appt.time)}</span>
+              ${statusHtml}
+            </div>
+            ${paymentHtml}
+          </div>`;
+      }).join("");
+
+      // Wire up payment method selection
+      histEl.querySelectorAll(".pay-method-select").forEach(container => {
+        const apptId = container.dataset.id;
+        const btns = container.querySelectorAll(".pay-method-btn");
+        const confirmBtn = container.querySelector(".pay-confirm-btn");
+        let selectedMethod = null;
+
+        btns.forEach(btn => {
+          btn.addEventListener("click", () => {
+            btns.forEach(b => b.classList.remove("selected"));
+            btn.classList.add("selected");
+            selectedMethod = btn.dataset.method;
+            confirmBtn.classList.remove("hidden");
+            confirmBtn.disabled = false;
+          });
+        });
+
+        confirmBtn.addEventListener("click", () => {
+          if (selectedMethod) {
+            markPatientPaid(apptId, selectedMethod);
+          }
+        });
+      });
+    }
+
+    // --- Payment info ---
+    async function loadPaymentInfo() {
+      try {
+        const [paySnap, patSnap] = await Promise.all([
+          getDoc(drDoc("settings", "payment")),
+          getDoc(drDoc("patients", patientId)),
+        ]);
+        if (paySnap.exists()) paymentSettings = paySnap.data();
+        if (patSnap.exists()) patientPrice = patSnap.data().price || 0;
+      } catch (err) {
+        console.warn("loadPaymentInfo:", err);
+      }
+    }
+
+    function renderPaymentInfo() {
+      const el = document.getElementById("payment-info");
+      if (!el) return;
+      const price = patientPrice || paymentSettings?.defaultPrice || 0;
+      if (!price) { el.innerHTML = ""; return; }
+      el.innerHTML = `<div class="payment-panel"><div class="price-label">מחיר ביקור: <strong>${esc(price)}₪</strong></div></div>`;
+    }
+
+    async function markPatientPaid(apptId, paymentMethod) {
+      // Optimistic: update local state + re-render immediately
+      const appt = myAppointments.find(a => a.id === apptId) || myHistory.find(a => a.id === apptId);
+      if (appt) {
+        appt.patientMarkedPaid = true;
+        appt.patientPaymentMethod = paymentMethod || null;
+      }
+      renderMyAppointments();
+      renderHistory();
+      const methodLabel = PATIENT_PAY_METHODS[paymentMethod] || '';
+      showToast(`סומן כשולם${methodLabel ? ' (' + methodLabel + ')' : ''} – יאומת ע"י המטפל`);
+
+      try {
+        const updateData = { patientMarkedPaid: true };
+        if (paymentMethod) updateData.patientPaymentMethod = paymentMethod;
+        await updateDoc(drDoc("appointments", apptId), updateData);
+      } catch (err) {
+        console.error(err);
+        // Revert on error
+        if (appt) {
+          appt.patientMarkedPaid = false;
+          appt.patientPaymentMethod = null;
+        }
+        renderMyAppointments();
+        renderHistory();
+        showToast("שגיאה בסימון תשלום", "error");
+      }
+    }
+
+    async function cancelAppointment(appointmentId) {
+      const appt = myAppointments.find(a => a.id === appointmentId);
+      const isBooked = appt && appt.status === "booked";
+
+      const msg = isBooked
+        ? "התור כבר אושר על ידי המטפל.\nהאם ברצונך לשלוח בקשת ביטול למטפל?"
+        : "האם אתה בטוח שברצונך לבטל את התור?";
+      if (!confirm(msg)) return;
+
+      if (isBooked) {
+        // ── Booked appointment: send cancellation REQUEST ──
+        const oldStatus = appt.status;
+        appt.status = "cancel_requested";
+        renderMyAppointments();
+        showToast("שולח בקשת ביטול...");
+
+        try {
+          await updateDoc(drDoc("appointments", appointmentId), {
+            status: "cancel_requested",
+            cancelRequestedAt: serverTimestamp()
+          });
+          showToast("בקשת הביטול נשלחה למטפל");
+        } catch (err) {
+          console.error(err);
+          appt.status = oldStatus;
+          renderMyAppointments();
+          showToast("שגיאה בשליחת בקשת ביטול", "error");
+        }
+      } else {
+        // ── Pending appointment: cancel directly ──
+        const idx = myAppointments.findIndex(a => a.id === appointmentId);
+        const removedAppt = idx >= 0 ? myAppointments.splice(idx, 1)[0] : null;
+        const bIdx = bookedSlots.findIndex(a => a.id === appointmentId);
+        const removedBooked = bIdx >= 0 ? bookedSlots.splice(bIdx, 1)[0] : null;
+        renderMyAppointments();
+        if (calendar) calendar.refetchEvents();
+        showToast("מבטל תור...");
+
+        try {
+          await updateDoc(drDoc("appointments", appointmentId), {
+            status: "cancelled",
+            updatedAt: serverTimestamp()
+          });
+          showToast("התור בוטל בהצלחה");
+        } catch (err) {
+          console.error(err);
+          if (removedAppt) myAppointments.push(removedAppt);
+          if (removedBooked) bookedSlots.push(removedBooked);
+          renderMyAppointments();
+          if (calendar) calendar.refetchEvents();
+          showToast("שגיאה בביטול התור", "error");
+        }
+      }
+    }
+
+    function generateSlots(dateStr) {
+      if (!availability) return [];
+      const { workingHours, slotDurationMin, blockedDates, workingDays } = availability;
+      const dayOfWeek = new Date(dateStr).getDay();
+      if (blockedDates?.includes(dateStr)) return [];
+      if (!workingDays.includes(dayOfWeek))  return [];
+
+      const slots = [];
+      const [sh, sm] = workingHours.start.split(":").map(Number);
+      const [eh, em] = workingHours.end.split(":").map(Number);
+      let cur = sh * 60 + sm;
+      const end = eh * 60 + em;
+      while (cur + slotDurationMin <= end) {
+        const h = String(Math.floor(cur / 60)).padStart(2, "0");
+        const m = String(cur % 60).padStart(2, "0");
+        slots.push(`${h}:${m}`);
+        cur += slotDurationMin;
+      }
+      return slots;
+    }
+
+    function _toMin(t) {
+      const [h, m] = (t || "00:00").split(":").map(Number);
+      return h * 60 + (m || 0);
+    }
+
+    function isSlotBooked(dateStr, slotTime) {
+      const slotDur   = availability?.slotDurationMin || 45;
+      const slotStart = _toMin(slotTime);
+      const slotEnd   = slotStart + slotDur;
+      return bookedSlots.some(a => {
+        if (a.date !== dateStr) return false;
+        const aStart = _toMin(a.time);
+        const aDur   = a.durationMin || 45;
+        const aEnd   = aStart + aDur;
+        return slotStart < aEnd && slotEnd > aStart;
+      });
+    }
+
+    const isMySlot = (d, t) => myAppointments.some(a => a.date === d && a.time === t);
+
+    function openSlotsModal(dateStr) {
+      const slots   = generateSlots(dateStr);
+      const dateObj = new Date(dateStr + "T12:00:00");
+      modalTitle.textContent = dateObj.toLocaleDateString("he-IL", {
+        weekday: "long", year: "numeric", month: "long", day: "numeric"
+      });
+
+      if (slots.length === 0) {
+        slotsList.innerHTML = '<p class="empty-text">אין שעות פנויות ביום זה.</p>';
+      } else {
+        slotsList.innerHTML = slots.map(time => {
+          const booked = isSlotBooked(dateStr, time);
+          const mine   = isMySlot(dateStr, time);
+          const cls    = mine ? "slot-btn slot-mine" : booked ? "slot-btn slot-taken" : "slot-btn slot-free";
+          const label  = mine ? `${esc(time)} (שלי)` : booked ? `${esc(time)} (תפוס)` : esc(time);
+          return `<button class="${cls}" data-date="${esc(dateStr)}" data-time="${esc(time)}" ${booked ? "disabled" : ""}>${label}</button>`;
+        }).join("");
+        slotsList.querySelectorAll(".slot-free").forEach(btn => {
+          btn.addEventListener("click", () => bookSlot(btn.dataset.date, btn.dataset.time));
+        });
+      }
+      slotsModal.classList.remove("hidden");
+    }
+
+    function closeModal() {
+      slotsModal.classList.add("hidden");
+    }
+
+    async function bookSlot(dateStr, time) {
+      if (availability?.disableOnlineBooking) {
+        showToast("קביעת תורים מנוטרלת זמנית על ידי המטפל", "error"); return;
+      }
+      // One active appointment limit
+      if (myAppointments.length > 0) {
+        showToast("יש לך כבר תור פעיל – לא ניתן לקבוע תור נוסף", "error"); return;
+      }
+      // Close modal immediately for instant response
+      closeModal();
+      showToast(`קובע תור ל-${dateStr} בשעה ${time}...`);
+      try {
+        const slotDur  = availability?.slotDurationMin || 45;
+        const newStart = _toMin(time);
+        const newEnd   = newStart + slotDur;
+        const freshSnap = await getDocs(
+          query(drCol("appointments"), where("date", "==", dateStr))
+        );
+        const conflict = freshSnap.docs.some(d => {
+          const a = d.data();
+          if (a.status === "cancelled") return false;
+          const aStart = _toMin(a.time);
+          const aEnd   = aStart + (a.durationMin || 45);
+          return newStart < aEnd && newEnd > aStart;
+        });
+        if (conflict) {
+          showToast("השעה כבר תפוסה – נא לבחור שעה אחרת", "error");
+          await reload();
+          if (calendar) calendar.refetchEvents();
+          return;
+        }
+        await addDoc(drCol("appointments"), {
+          anonymousId: patientId,
+          date:        dateStr,
+          time:        time,
+          durationMin: slotDur,
+          status:      "pending",
+          createdAt:   serverTimestamp(),
+          updatedAt:   serverTimestamp()
+        });
+        showToast(`התור נקבע ל-${dateStr} בשעה ${time} – ממתין לאישור המטפל`);
+        await reload();
+        if (calendar) calendar.refetchEvents();
+      } catch (err) {
+        console.error(err);
+        showToast("שגיאה בקביעת התור", "error");
+      }
+    }
+
+    async function reload() {
+      await loadAppointments();
+      renderMyAppointments();
+      renderPaymentInfo();
+      renderHistory();
+    }
+
+    let calendar;
+    function initCalendar() {
+      const calEl = document.getElementById("calendar");
+      calendar = new FullCalendar.Calendar(calEl, {
+        initialView: "dayGridMonth",
+        locale:      "he",
+        direction:   "rtl",
+        firstDay:    0,
+        headerToolbar: { start: "prev,next today", center: "title", end: "" },
+        buttonText:  { today: "היום" },
+        validRange: {
+          start: new Date().toISOString().split("T")[0],
+          end:   new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
+        },
+        dayCellClassNames: (info) => {
+          const dateStr = info.date.toISOString().split("T")[0];
+          if (!availability) return [];
+          const dow     = info.date.getDay();
+          const blocked = availability.blockedDates?.includes(dateStr);
+          const working = availability.workingDays?.includes(dow);
+          if (blocked || !working) return ["fc-day-disabled"];
+          const slots     = generateSlots(dateStr);
+          const freeSlots = slots.filter(t => !isSlotBooked(dateStr, t));
+          if (freeSlots.length === 0) return ["fc-day-full"];
+          if (myAppointments.some(a => a.date === dateStr)) return ["fc-day-mine"];
+          return ["fc-day-available"];
+        },
+        dateClick: (info) => {
+          if (availability?.disableOnlineBooking) {
+            showToast("קביעת תורים מנוטרלת זמנית על ידי המטפל", "error"); return;
+          }
+          const dateStr = info.dateStr;
+          const today   = new Date().toISOString().split("T")[0];
+          if (dateStr < today || !availability) return;
+          const dow     = info.date.getDay();
+          const blocked = availability.blockedDates?.includes(dateStr);
+          const working = availability.workingDays?.includes(dow);
+          if (blocked || !working) return;
+          openSlotsModal(dateStr);
+        }
+      });
+      calendar.render();
+    }
+
+    // --- Booking status banner / calendar toggle (called on every availability change) ---
+    function _applyBookingStatus(disabled) {
+      const calSection = document.querySelector('.calendar-section');
+      if (!calSection) return;
+
+      if (disabled && !_bookingDisabled) {
+        // Switched to DISABLED → show banner, hide calendar
+        _bookingDisabled = true;
+        calSection.innerHTML =
+          '<div id="booking-disabled-banner" style="background:#fff3cd;border:2px solid #ffc107;border-radius:10px;padding:20px;text-align:center;margin-bottom:16px;">' +
+          '<div style="font-size:1.5rem;margin-bottom:8px;">&#128683;</div>' +
+          '<div style="font-weight:700;font-size:1.1rem;color:#856404;">קביעת תורים מנוטרלת זמנית</div>' +
+          '<div style="color:#856404;font-size:.9rem;margin-top:4px;">ניתן לצפות בתורים קיימים. לקביעת תור חדש – יש לפנות למטפל.</div>' +
+          '</div>';
+      } else if (!disabled && _bookingDisabled) {
+        // Switched to ENABLED → restore calendar
+        _bookingDisabled = false;
+        calSection.innerHTML =
+          '<h2>קביעת תור חדש</h2>' +
+          '<p class="calendar-hint">לחץ על תאריך לראות שעות פנויות</p>' +
+          '<div id="calendar"></div>';
+        _calendarInited = false;
+        initCalendar();
+      }
+    }
+
+    // --- Real-time listener for availability changes (no page refresh) ---
+    function _watchAvailability() {
+      const demoMode = sessionStorage.getItem("demoMode") === "true";
+      if (demoMode) return;
+      onSnapshot(drDoc("settings", "availability"), (snap) => {
+        if (!snap.exists()) return;
+        const newAvail = snap.data();
+        const wasDisabled = availability?.disableOnlineBooking;
+        availability = newAvail;
+        const nowDisabled = !!newAvail.disableOnlineBooking;
+        // Only update UI if the booking toggle actually changed
+        if (wasDisabled !== undefined && wasDisabled !== nowDisabled) {
+          _applyBookingStatus(nowDisabled);
+        }
+      });
+    }
+
+    // --- Real-time listener for appointment changes (status, treated, paid) ---
+    function _watchAppointments() {
+      const demoMode = sessionStorage.getItem("demoMode") === "true";
+      if (demoMode) return;
+      const today = new Date().toISOString().split("T")[0];
+      // Listen to all non-cancelled appointments for this patient
+      const q1 = query(drCol("appointments"), where("status", "==", "booked"));
+      const q2 = query(drCol("appointments"), where("status", "==", "pending"));
+      const q3 = query(drCol("appointments"), where("status", "==", "cancel_requested"));
+      let firstSnap1 = true, firstSnap2 = true, firstSnap3 = true;
+
+      onSnapshot(q1, (snap) => {
+        if (firstSnap1) { firstSnap1 = false; return; }
+        _refreshAppointments(snap, "booked");
+      });
+      onSnapshot(q2, (snap) => {
+        if (firstSnap2) { firstSnap2 = false; return; }
+        _refreshAppointments(snap, "pending");
+      });
+      onSnapshot(q3, (snap) => {
+        if (firstSnap3) { firstSnap3 = false; return; }
+        _refreshAppointments(snap, "cancel_requested");
+      });
+    }
+
+    let _lastBookedDocs = [], _lastPendingDocs = [], _lastCancelReqDocs = [];
+    function _refreshAppointments(snap, type) {
+      const today = new Date().toISOString().split("T")[0];
+      if (type === "booked")           _lastBookedDocs    = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      if (type === "pending")          _lastPendingDocs   = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      if (type === "cancel_requested") _lastCancelReqDocs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const all = [..._lastBookedDocs, ..._lastPendingDocs, ..._lastCancelReqDocs];
+      bookedSlots = all;
+      _splitMyAppointments(all, today);
+      renderMyAppointments();
+      renderHistory();
+    }
+
+    async function init() {
+      const demoMode = sessionStorage.getItem("demoMode") === "true";
+      if (!demoMode) {
+        try { await signInAnonymously(auth); } catch (e) { console.warn("anon auth:", e); }
+      }
+      await loadAvailability();
+      await Promise.all([loadAppointments(), loadPaymentInfo()]);
+
+      // Store initial docs for real-time merge
+      const today = new Date().toISOString().split("T")[0];
+      _lastBookedDocs    = bookedSlots.filter(a => a.status === "booked");
+      _lastPendingDocs   = bookedSlots.filter(a => a.status === "pending");
+      _lastCancelReqDocs = bookedSlots.filter(a => a.status === "cancel_requested");
+
+      renderPaymentInfo();
+      renderHistory();
+      // renderMyAppointments also handles calendar visibility
+      renderMyAppointments();
+
+      if (availability?.disableOnlineBooking) {
+        _bookingDisabled = false;
+        _applyBookingStatus(true);
+      } else if (myAppointments.length === 0) {
+        // Only init calendar if no active appointments
+        _bookingDisabled = false;
+        initCalendar();
+        _calendarInited = true;
+      }
+
+      // Hide loading overlay
+      const overlay = document.getElementById('loading-overlay');
+      if (overlay) overlay.style.display = 'none';
+
+      // Start real-time listeners
+      _watchAvailability();
+      _watchAppointments();
+    }
+
+    init().catch(err => {
+      console.error(err);
+      const overlay = document.getElementById('loading-overlay');
+      if (overlay) overlay.style.display = 'none';
+      showToast("שגיאה בטעינה", "error");
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.pytest_cache/
+
+# Virtual environment
+venv/
+env/
+
+# Build artifacts
+doctor-app/build/
+doctor-app/dist/
+doctor-app/Output/
+doctor-app/AnonimousQ.spec
+doctor-app/installer.iss
+doctor-app/build_sfx_installer.py
+
+# Data & databases
+doctor-app/data/anonimousq.db
+doctor-app/data/browser-profile/
+doctor-app/data/secret.key
+
+# Sensitive files - Firebase service account keys
+doctor-app/anonimusq-80432-firebase-adminsdk-*.json
+doctor-app/data/service-account.json
+doctor-app/data/firebase-service-account.json
+
+# Installer tools
+inno-setup.exe
+
+# IDE & OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Claude
+.claude/

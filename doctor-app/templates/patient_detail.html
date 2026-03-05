@@ -1,0 +1,1332 @@
+{% extends "base.html" %}
+{% block title %}{{ patient.name }} – כרטיס מטופל{% endblock %}
+
+{% block content %}
+<!-- Breadcrumb -->
+<nav aria-label="breadcrumb" class="mb-3">
+  <ol class="breadcrumb mb-0">
+    <li class="breadcrumb-item"><a href="{{ url_for('patients') }}">מטופלים</a></li>
+    <li class="breadcrumb-item active">{{ patient.name }}</li>
+  </ol>
+</nav>
+
+<!-- Patient Header -->
+<div class="card mb-3 shadow-sm">
+  <div class="card-body py-2">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+      <div>
+        <h4 class="mb-0 d-inline">{{ patient.name }}</h4>
+        <span class="badge bg-secondary font-monospace ms-2 fs-6">{{ patient.anonymous_id }}</span>
+        {% if patient.phone %}
+        <span class="text-muted ms-3">{{ patient.phone }}</span>
+        {% endif %}
+        <span class="badge bg-primary ms-2">{{ '%g' | format(patient.price or 0) }}&#8362;</span>
+        {% if patient.active == 0 %}
+        <span class="badge bg-warning text-dark ms-2">לא פעיל</span>
+        {% endif %}
+      </div>
+      <div class="d-flex gap-2 align-items-center">
+        <div class="form-check form-switch mb-0">
+          <input class="form-check-input" type="checkbox" id="anonToggle"
+                 {% if patient.is_anonymous %}checked{% endif %}
+                 onchange="toggleAnonymous(this.checked)" style="cursor:pointer;">
+          <label class="form-check-label small" for="anonToggle" style="cursor:pointer;">
+            &#128065; אנונימי
+          </label>
+        </div>
+        <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#bookApptModal">
+          &#128197; הוסף תור
+        </button>
+        <a href="{{ url_for('patients') }}" class="btn btn-outline-secondary btn-sm">
+          &#8592; חזרה לרשימה
+        </a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Tab Navigation -->
+<ul class="nav nav-tabs" id="patientTabs" role="tablist">
+  <li class="nav-item" role="presentation">
+    <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tabSummary" type="button">
+      &#128202; סיכום
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabNotes" type="button">
+      &#128221; תיעוד טיפול
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabHistory" type="button">
+      &#128196; היסטוריית תורים
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabEmergency" type="button">
+      &#128222; אנשי קשר לחירום
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabReferral" type="button">
+      &#128176; דמי תיווך
+    </button>
+  </li>
+</ul>
+
+<div class="tab-content mt-3" id="patientTabContent">
+
+  <!-- ============ TAB: Summary ============ -->
+  <div class="tab-pane fade show active" id="tabSummary" role="tabpanel">
+    <div class="row g-3">
+      <div class="col-md-4">
+        <div class="card text-center shadow-sm h-100">
+          <div class="card-body">
+            <div class="fs-1 fw-bold text-primary" id="sumTotal">{{ summary.total_appointments }}</div>
+            <div class="text-muted">סה"כ פגישות</div>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="card text-center shadow-sm h-100">
+          <div class="card-body">
+            <div class="fs-1 fw-bold text-success" id="sumTreated">{{ summary.treated }}</div>
+            <div class="text-muted">טופלו</div>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="card text-center shadow-sm h-100">
+          <div class="card-body">
+            <div class="fs-1 fw-bold text-info" id="sumPaid">{{ summary.paid }}</div>
+            <div class="text-muted">שולמו</div>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-6">
+        <div class="card shadow-sm h-100">
+          <div class="card-body">
+            <h6 class="card-title text-muted mb-1">תשלומים שבוצעו</h6>
+            <div class="fs-3 fw-bold" id="sumPaidAmount">{{ '%g' | format(summary.total_paid_amount) }}&#8362;</div>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-6">
+        <div class="card shadow-sm h-100 {% if summary.unpaid > 0 %}border-danger{% endif %}" id="sumRemainingCard">
+          <div class="card-body">
+            <h6 class="card-title text-muted mb-1">נותר לתשלום</h6>
+            <div class="fs-3 fw-bold {% if summary.unpaid > 0 %}text-danger{% else %}text-success{% endif %}" id="sumRemaining">
+              {% if summary.unpaid > 0 %}
+                {{ '%g' | format(summary.total_remaining) }}&#8362; <small class="fs-6 text-muted">({{ summary.unpaid }} פגישות)</small>
+              {% else %}
+                0&#8362;
+              {% endif %}
+            </div>
+          </div>
+        </div>
+      </div>
+      {% if referral_summary %}
+      <div class="col-12">
+        <div class="card shadow-sm border-warning">
+          <div class="card-header bg-warning bg-opacity-25 fw-bold">&#128176; דמי תיווך – {{ referral_summary.broker_name }}</div>
+          <div class="card-body">
+            <div class="row text-center">
+              <div class="col">
+                <div class="fw-bold">{{ referral_summary.percentage }}%</div>
+                <small class="text-muted">אחוז</small>
+              </div>
+              <div class="col">
+                <div class="fw-bold">{{ referral_summary.per_session_fee }}&#8362;</div>
+                <small class="text-muted">לפגישה</small>
+              </div>
+              <div class="col">
+                <div class="fw-bold">{{ referral_summary.effective_sessions }}/{{ referral_summary.total_sessions }}</div>
+                <small class="text-muted">מפגשים</small>
+              </div>
+              <div class="col">
+                <div class="fw-bold text-danger">{{ referral_summary.owed_so_far }}&#8362;</div>
+                <small class="text-muted">חוב עד כה</small>
+              </div>
+              <div class="col">
+                <div class="fw-bold text-success">{{ referral_summary.paid_to_broker }}&#8362;</div>
+                <small class="text-muted">שולם</small>
+              </div>
+              <div class="col">
+                <div class="fw-bold {% if referral_summary.unpaid_to_broker > 0 %}text-danger{% endif %}">{{ referral_summary.unpaid_to_broker }}&#8362;</div>
+                <small class="text-muted">נותר למתווך</small>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- ============ TAB: Treatment Notes ============ -->
+  <div class="tab-pane fade" id="tabNotes" role="tabpanel">
+    <div class="d-flex flex-column" style="height: 65vh;">
+      <!-- Notes List (scrollable, top) -->
+      <div id="notesList" class="flex-grow-1 overflow-auto border rounded p-3 mb-2 bg-light" style="direction:rtl;">
+        {% if notes %}
+        {% for n in notes|reverse %}
+        <div class="d-flex mb-1 align-items-start" id="note-{{ n.id }}">
+          <div class="card shadow-sm flex-grow-1" style="max-width:90%;">
+            <div class="card-body py-1 px-2">
+              <div class="d-flex justify-content-between align-items-center" style="font-size:.75rem;">
+                <div>
+                  <span class="badge {{ 'bg-info' if n.note_type == 'session' else 'bg-secondary' }} me-1" style="font-size:.6rem;padding:2px 5px;">
+                    {{ 'פגישה' if n.note_type == 'session' else 'חופשי' }}
+                  </span>
+                  {% if n.appointment_date %}
+                  <span class="text-muted">{{ n.appointment_date }} {{ n.appointment_time or '' }}</span>
+                  {% endif %}
+                </div>
+                <span class="text-muted">{{ n.created_at[:16] }}</span>
+              </div>
+              <div class="note-content" id="note-text-{{ n.id }}" style="white-space:pre-wrap;font-size:.85rem;margin-top:2px;">{{ n.content }}</div>
+            </div>
+          </div>
+          <button class="btn btn-link text-danger p-0 ms-1 flex-shrink-0" style="font-size:.9rem;line-height:1;"
+                  onclick="deleteNote({{ n.id }})" title="מחק">&#10006;</button>
+        </div>
+        {% endfor %}
+        {% else %}
+        <div class="text-muted text-center py-5" id="noNotesMsg">
+          אין הערות עדיין. הוסף הערה ראשונה למטה.
+        </div>
+        {% endif %}
+      </div>
+
+      <!-- Input Area (bottom, chat-style) -->
+      <div class="card shadow-sm">
+        <div class="card-body py-2 px-3">
+          <div class="row g-2 align-items-end">
+            <div class="col-auto">
+              <select id="noteType" class="form-select form-select-sm" style="width:auto;">
+                <option value="freeform">חופשי</option>
+                <option value="session">פגישה</option>
+              </select>
+            </div>
+            <div class="col-auto d-none" id="noteApptFields">
+              <select id="noteApptSelect" class="form-select form-select-sm" style="width:auto;">
+                {% for a in appointments %}
+                <option value="{{ a.date }}|{{ a.time }}">{{ a.date }} {{ a.time }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col">
+              <textarea id="noteContent" class="form-control form-control-sm" rows="1"
+                        placeholder="כתוב הערה או תובנה..."
+                        style="resize:none;overflow:hidden;min-height:38px;"
+                        oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px';"
+                        onkeydown="if(event.ctrlKey && event.key==='Enter'){addNote();}"></textarea>
+            </div>
+            <div class="col-auto">
+              <button class="btn btn-primary btn-sm" onclick="addNote()">
+                &#10148; הכנס
+              </button>
+            </div>
+          </div>
+          <div class="text-muted text-end" style="font-size:0.7rem;">Ctrl+Enter לשליחה מהירה</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ TAB: Appointment History ============ -->
+  <div class="tab-pane fade" id="tabHistory" role="tabpanel">
+    <div id="historyTableContainer">
+      {% if appointments %}
+      <p class="text-muted small text-end mb-1">{{ appointments|length }} רשומות &nbsp;|&nbsp; קליק ימני על שדה לעריכה</p>
+      {% else %}
+      <div class="text-muted text-center py-4">אין תורים עדיין.</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- ============ TAB: Emergency Contacts ============ -->
+  <div class="tab-pane fade" id="tabEmergency" role="tabpanel">
+    <div id="emergencyList">
+      {% for c in emergency_contacts %}
+      <div class="card mb-2 shadow-sm" id="ec-{{ c.id }}">
+        <div class="card-body py-2 d-flex justify-content-between align-items-center">
+          <div>
+            <strong>{{ c.contact_name }}</strong>
+            <span class="text-muted mx-2">|</span>
+            <a href="tel:{{ c.contact_phone }}" class="text-decoration-none">{{ c.contact_phone }}</a>
+          </div>
+          <div class="d-flex gap-1">
+            <button class="btn btn-outline-primary btn-sm py-0 px-1"
+                    onclick="editEC({{ c.id }}, '{{ c.contact_name }}', '{{ c.contact_phone }}')" title="ערוך">&#9998;</button>
+            <button class="btn btn-outline-danger btn-sm py-0 px-1"
+                    onclick="deleteEC({{ c.id }})" title="מחק">&#10006;</button>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+
+    {% if emergency_contacts|length < 3 %}
+    <div class="card shadow-sm mt-2" id="ecAddCard">
+      <div class="card-body py-2">
+        <div class="row g-2 align-items-end">
+          <div class="col-md-4">
+            <label class="form-label small fw-semibold">שם</label>
+            <input type="text" id="ecName" class="form-control form-control-sm" placeholder="שם איש קשר" />
+          </div>
+          <div class="col-md-4">
+            <label class="form-label small fw-semibold">טלפון</label>
+            <input type="text" id="ecPhone" class="form-control form-control-sm" placeholder="050-0000000" />
+          </div>
+          <div class="col-auto">
+            <button class="btn btn-primary btn-sm" onclick="addEC()">&#10010; הוסף איש קשר</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
+    {% if not emergency_contacts %}
+    <div class="text-muted text-center py-4" id="noECMsg">אין אנשי קשר לחירום. ניתן להוסיף עד 3.</div>
+    {% endif %}
+  </div>
+
+  <!-- ============ TAB: Referral Fee ============ -->
+  <div class="tab-pane fade" id="tabReferral" role="tabpanel">
+    {% if referral and referral.enabled %}
+    <!-- Referral exists -->
+    <div class="card shadow-sm mb-3 border-warning">
+      <div class="card-header bg-warning bg-opacity-25 d-flex justify-content-between align-items-center">
+        <span class="fw-bold">&#128176; הסכם תיווך פעיל</span>
+        <button class="btn btn-outline-danger btn-sm" onclick="deleteReferral()">הסר הסכם</button>
+      </div>
+      <div class="card-body">
+        <div class="row mb-3">
+          <div class="col-md-4"><strong>מתווך:</strong> {{ referral.broker_name }}</div>
+          <div class="col-md-4"><strong>אחוז:</strong> {{ referral.percentage }}%</div>
+          <div class="col-md-4"><strong>מפגשים:</strong> {{ referral.total_sessions }}</div>
+        </div>
+
+        {% if referral_summary %}
+        <div class="row g-2 text-center mb-3">
+          <div class="col">
+            <div class="border rounded p-2">
+              <div class="fw-bold">{{ referral_summary.per_session_fee }}&#8362;</div>
+              <small class="text-muted">לפגישה</small>
+            </div>
+          </div>
+          <div class="col">
+            <div class="border rounded p-2">
+              <div class="fw-bold">{{ referral_summary.total_referral_fee }}&#8362;</div>
+              <small class="text-muted">סה"כ תיווך</small>
+            </div>
+          </div>
+          <div class="col">
+            <div class="border rounded p-2">
+              <div class="fw-bold">{{ referral_summary.effective_sessions }}/{{ referral_summary.total_sessions }}</div>
+              <small class="text-muted">מפגשים שהיו</small>
+            </div>
+          </div>
+          <div class="col">
+            <div class="border rounded p-2" id="refPaidCard" style="cursor:context-menu"
+                 oncontextmenu="_showRefPaidCtx(event)" title="קליק ימני לעדכון סכום">
+              <div class="fw-bold text-success" id="refPaidVal">{{ referral_summary.paid_to_broker }}&#8362;</div>
+              <small class="text-muted">שולם למתווך</small>
+            </div>
+          </div>
+          <div class="col">
+            <div class="border rounded p-2 {% if referral_summary.unpaid_to_broker > 0 %}border-danger{% endif %}" id="refUnpaidCard">
+              <div class="fw-bold {% if referral_summary.unpaid_to_broker > 0 %}text-danger{% endif %}" id="refUnpaidVal">{{ referral_summary.unpaid_to_broker }}&#8362;</div>
+              <small class="text-muted">נותר למתווך</small>
+            </div>
+          </div>
+        </div>
+
+        {% if referral_summary.payments %}
+        <h6 class="fw-semibold mb-2">מעקב תשלומים למתווך</h6>
+        <div class="table-responsive">
+          <table class="table table-sm table-hover">
+            <thead class="table-light">
+              <tr>
+                <th>#</th>
+                <th>תאריך פגישה</th>
+                <th>שעה</th>
+                <th>סכום</th>
+                <th>שולם</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for p in referral_summary.payments %}
+              <tr>
+                <td>{{ loop.index }}</td>
+                <td>{{ p.appointment_date }}</td>
+                <td>{{ p.appointment_time }}</td>
+                <td>{{ p.amount }}&#8362;</td>
+                <td>
+                  <div class="form-check form-switch d-inline-block">
+                    <input class="form-check-input" type="checkbox"
+                           {{ 'checked' if p.paid_to_broker else '' }}
+                           onchange="toggleReferralPay({{ p.id }}, this.checked)" />
+                  </div>
+                  {% if p.paid_to_broker %}
+                  <span class="text-success small">&#10004;</span>
+                  {% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% endif %}
+        {% endif %}
+      </div>
+    </div>
+    {% else %}
+    <!-- No referral - show creation form -->
+    <div class="card shadow-sm">
+      <div class="card-header fw-bold">&#128176; הגדרת דמי תיווך</div>
+      <div class="card-body">
+        <p class="text-muted small mb-3">
+          הגדר הסכם דמי תיווך עבור מטופל זה. המערכת תעקוב אוטומטית אחר הסכומים.
+        </p>
+        <div class="row g-3">
+          <div class="col-md-4">
+            <label class="form-label fw-semibold">שם המתווך</label>
+            <input type="text" id="refBroker" class="form-control" placeholder="שם מלא" />
+          </div>
+          <div class="col-md-4">
+            <label class="form-label fw-semibold">אחוז מהתשלום</label>
+            <div class="input-group">
+              <input type="number" id="refPercent" class="form-control" min="1" max="100" placeholder="אחוז מהתשלום" />
+              <span class="input-group-text">%</span>
+            </div>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label fw-semibold">מספר מפגשים</label>
+            <input type="number" id="refSessions" class="form-control" min="1" placeholder="מספר מפגשים" />
+          </div>
+        </div>
+        <div class="mt-3">
+          <button class="btn btn-warning" onclick="createReferral()">&#10004; הפעל דמי תיווך</button>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+
+</div>
+
+<!-- Edit Note Modal -->
+<div class="modal fade" id="editNoteModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">עריכת הערה</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <textarea id="editNoteContent" class="form-control" rows="5"></textarea>
+        <input type="hidden" id="editNoteId" />
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary" onclick="saveEditNote()">שמור</button>
+        <button class="btn btn-secondary" data-bs-dismiss="modal">ביטול</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Book Appointment Modal -->
+<div class="modal fade" id="bookApptModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">&#128197; קביעת תור – {{ patient.name }}</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label fw-semibold">תאריך <span class="text-danger">*</span></label>
+          <input type="date" id="bookDate" class="form-control" />
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold">שעה <span class="text-danger">*</span></label>
+          <input type="time" id="bookTime" class="form-control" step="900" />
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold">משך טיפול</label>
+          <div class="d-flex align-items-center gap-3">
+            <button type="button" class="btn btn-outline-secondary btn-sm" onclick="bookDur=Math.max(15,bookDur-5);document.getElementById('bookDurDisplay').textContent=bookDur;" style="width:36px;padding:0;">&#8722;</button>
+            <span id="bookDurDisplay" class="fw-bold fs-5 text-center" style="min-width:60px;">45</span>
+            <span class="text-muted small">דקות</span>
+            <button type="button" class="btn btn-outline-secondary btn-sm" onclick="bookDur=Math.min(180,bookDur+5);document.getElementById('bookDurDisplay').textContent=bookDur;" style="width:36px;padding:0;">+</button>
+          </div>
+        </div>
+        <div id="bookError" class="alert alert-danger d-none small mb-0"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">ביטול</button>
+        <button type="button" class="btn btn-primary" onclick="submitBookAppt()">&#10003; קבע תור</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Reschedule Modal -->
+<div class="modal fade" id="rescheduleModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered modal-sm">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">&#128197; שינוי מועד</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="reschedApptId" />
+        <input type="hidden" id="reschedSource" />
+        <input type="hidden" id="reschedIdx" />
+        <div class="mb-2 text-muted small" id="reschedOldInfo"></div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold">תאריך חדש</label>
+          <input type="date" id="reschedDate" class="form-control" />
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold">שעה חדשה</label>
+          <input type="time" id="reschedTime" class="form-control" step="900" />
+        </div>
+        <div id="reschedError" class="alert alert-danger d-none small mb-0"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">ביטול</button>
+        <button type="button" class="btn btn-primary" onclick="submitReschedule()">&#10003; שנה מועד</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Edit EC Modal -->
+<div class="modal fade" id="editECModal" tabindex="-1">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">עריכת איש קשר</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="editECId" />
+        <div class="mb-2">
+          <label class="form-label small">שם</label>
+          <input type="text" id="editECName" class="form-control" />
+        </div>
+        <div>
+          <label class="form-label small">טלפון</label>
+          <input type="text" id="editECPhone" class="form-control" />
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary" onclick="saveEditEC()">שמור</button>
+        <button class="btn btn-secondary" data-bs-dismiss="modal">ביטול</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+var PATIENT_ID = {{ patient.id }};
+var PATIENT_ANON_ID = '{{ patient.anonymous_id }}';
+var PATIENT_PRICE = {{ patient.price or 0 }};
+var PAYMENT_LABELS = { bit: 'ביט', paybox: 'פייבוקס', cash: 'מזומן', bank: 'העברה בנקאית' };
+var STATUS_MAP = { booked: ['bg-success', 'מאושר'], pending: ['bg-warning text-dark', 'ממתין'], cancelled: ['bg-danger', 'בוטל'] };
+var bookDur = 45;
+
+// ── Toast notification (non-blocking, auto-dismiss) ──
+function _showToast(msg, type) {
+  var el = document.createElement('div');
+  el.className = 'alert alert-' + (type === 'warning' ? 'warning' : 'info') + ' alert-dismissible fade show position-fixed';
+  el.style.cssText = 'top:12px;left:50%;transform:translateX(-50%);z-index:99999;min-width:300px;box-shadow:0 4px 12px rgba(0,0,0,.15);';
+  el.innerHTML = msg + '<button type="button" class="btn-close" data-bs-dismiss="alert"></button>';
+  document.body.appendChild(el);
+  setTimeout(function() { el.classList.remove('show'); setTimeout(function() { el.remove(); }, 300); }, 5000);
+}
+
+// ── Referral data for dynamic updates ──
+var _refAgreement = {{ (referral|tojson) if referral else 'null' }};
+var _refTotalSessions = {{ referral.total_sessions if referral and referral.enabled else 0 }};
+var _refPercentage = {{ referral.percentage if referral and referral.enabled else 0 }};
+
+function _updateRefAfterTreatmentChange() {
+  // Recalculate referral summary when treatment status changes
+  if (!_refAgreement || !_refAgreement.enabled) return;
+  var treatedCount = 0;
+  _appts.forEach(function(a) {
+    if (a.status !== 'cancelled' && a.treated) treatedCount++;
+  });
+  var effective = Math.min(treatedCount, _refTotalSessions);
+  var perFee = Math.round(PATIENT_PRICE * (_refPercentage / 100) * 100) / 100;
+  var owed = Math.round(perFee * effective * 100) / 100;
+  _refOwed = owed;
+  _updateRefSummary();
+}
+
+// ── Anonymous toggle ──
+function toggleAnonymous(checked) {
+  fetch('/patients/set-anonymous/' + PATIENT_ID, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ isAnonymous: checked }),
+  })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (!d.ok) {
+        document.getElementById('anonToggle').checked = !checked;
+        alert('שגיאה: ' + (d.error || 'עדכון נכשל'));
+      }
+    })
+    .catch(function(err) {
+      document.getElementById('anonToggle').checked = !checked;
+      alert('שגיאת רשת: ' + err);
+    });
+}
+
+// ══════════════════════════════════════════════════════════
+// ── Dynamic Summary – recalculates from _appts array ──
+// ══════════════════════════════════════════════════════════
+function _updateSummary() {
+  var total = _appts.length;
+  var treated = 0, paid = 0;
+  _appts.forEach(function(a) {
+    if (a.status === 'cancelled') return;
+    if (a.treated) treated++;
+    if (a.paid) paid++;
+  });
+  var paidAmount = Math.round(paid * PATIENT_PRICE * 100) / 100;
+  var remaining = Math.round((treated - paid) * PATIENT_PRICE * 100) / 100;
+  var unpaid = treated - paid;
+
+  var el;
+  el = document.getElementById('sumTotal'); if (el) el.textContent = total;
+  el = document.getElementById('sumTreated'); if (el) el.textContent = treated;
+  el = document.getElementById('sumPaid'); if (el) el.textContent = paid;
+  el = document.getElementById('sumPaidAmount'); if (el) el.innerHTML = paidAmount + '&#8362;';
+
+  var remEl = document.getElementById('sumRemaining');
+  var remCard = document.getElementById('sumRemainingCard');
+  if (remEl) {
+    if (unpaid > 0) {
+      remEl.className = 'fs-3 fw-bold text-danger';
+      remEl.innerHTML = remaining + '&#8362; <small class="fs-6 text-muted">(' + unpaid + ' פגישות)</small>';
+      if (remCard) remCard.classList.add('border-danger');
+    } else {
+      remEl.className = 'fs-3 fw-bold text-success';
+      remEl.innerHTML = '0&#8362;';
+      if (remCard) remCard.classList.remove('border-danger');
+    }
+  }
+}
+
+// ── Note type toggle ──
+document.getElementById('noteType').addEventListener('change', function() {
+  document.getElementById('noteApptFields').classList.toggle('d-none', this.value !== 'session');
+});
+
+// ── Treatment Notes ──
+function addNote() {
+  var type = document.getElementById('noteType').value;
+  var content = document.getElementById('noteContent').value.trim();
+  if (!content) return alert('יש לכתוב תוכן');
+  var body = { content: content, noteType: type };
+  if (type === 'session') {
+    var sel = document.getElementById('noteApptSelect').value;
+    if (sel) {
+      var parts = sel.split('|');
+      body.appointmentDate = parts[0];
+      body.appointmentTime = parts[1];
+    }
+  }
+  // Optimistic: show note in UI immediately
+  var notesList = document.getElementById('notesList');
+  var noMsg = document.getElementById('noNotesMsg');
+  if (noMsg) noMsg.remove();
+  var tempId = 'temp-' + Date.now();
+  var now = new Date().toISOString().slice(0,16).replace('T',' ');
+  var typeLabel = type === 'session' ? 'פגישה' : 'חופשי';
+  var typeBadge = type === 'session' ? 'bg-info' : 'bg-secondary';
+  var dateInfo = body.appointmentDate ? '<small class="text-muted">' + (body.appointmentDate || '') + ' ' + (body.appointmentTime || '') + '</small>' : '';
+  var safeContent = content.replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  var html = '<div class="d-flex mb-1 align-items-start" id="note-' + tempId + '">' +
+    '<div class="card shadow-sm flex-grow-1" style="max-width:90%;">' +
+    '<div class="card-body py-1 px-2">' +
+    '<div class="d-flex justify-content-between align-items-center" style="font-size:.75rem;">' +
+    '<div><span class="badge ' + typeBadge + ' me-1" style="font-size:.6rem;padding:2px 5px;">' + typeLabel + '</span>' + dateInfo + '</div>' +
+    '<span class="text-muted">' + now + '</span></div>' +
+    '<div class="note-content" id="note-text-' + tempId + '" style="white-space:pre-wrap;font-size:.85rem;margin-top:2px;">' + safeContent + '</div>' +
+    '</div></div>' +
+    '<button class="btn btn-link text-danger p-0 ms-1 flex-shrink-0" style="font-size:.9rem;line-height:1;" onclick="deleteNote(\'' + tempId + '\')" title="מחק">&#10006;</button>' +
+    '</div>';
+  notesList.insertAdjacentHTML('beforeend', html);
+  notesList.scrollTop = notesList.scrollHeight;
+  document.getElementById('noteContent').value = '';
+  document.getElementById('noteContent').style.height = 'auto';
+  // Background: save to server (local DB + Firebase)
+  fetch('/api/patients/' + PATIENT_ID + '/notes', {
+    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)
+  }).then(function(r) { return r.json(); }).then(function(d) {
+    if (d.ok) {
+      // Update temp element with real ID
+      var el = document.getElementById('note-' + tempId);
+      if (el) {
+        el.id = 'note-' + d.id;
+        var textEl = el.querySelector('.note-content');
+        if (textEl) textEl.id = 'note-text-' + d.id;
+        var delBtn = el.querySelector('button.text-danger');
+        if (delBtn) delBtn.setAttribute('onclick', 'deleteNote(' + d.id + ')');
+      }
+    } else {
+      var el = document.getElementById('note-' + tempId);
+      if (el) el.remove();
+      alert('שגיאה: ' + (d.error || 'שמירה נכשלה'));
+    }
+  }).catch(function(err) {
+    var el = document.getElementById('note-' + tempId);
+    if (el) el.remove();
+    alert('שגיאת רשת: ' + err);
+  });
+}
+
+function editNote(id) {
+  var text = document.getElementById('note-text-' + id).textContent;
+  document.getElementById('editNoteId').value = id;
+  document.getElementById('editNoteContent').value = text;
+  new bootstrap.Modal(document.getElementById('editNoteModal')).show();
+}
+
+function saveEditNote() {
+  var id = document.getElementById('editNoteId').value;
+  var content = document.getElementById('editNoteContent').value.trim();
+  if (!content) return;
+  fetch('/api/patients/' + PATIENT_ID + '/notes/' + id, {
+    method: 'PUT', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ content: content })
+  }).then(r => r.json()).then(d => {
+    if (d.ok) {
+      var el = document.getElementById('note-text-' + id);
+      if (el) el.textContent = content;
+      bootstrap.Modal.getInstance(document.getElementById('editNoteModal')).hide();
+    } else alert(d.error);
+  });
+}
+
+function deleteNote(id) {
+  if (!confirm('למחוק הערה זו?')) return;
+  // Optimistic: remove from UI immediately
+  var el = document.getElementById('note-' + id);
+  var removedHtml = el ? el.outerHTML : null;
+  if (el) el.remove();
+  var notesList = document.getElementById('notesList');
+  if (!notesList.querySelector('.d-flex.mb-1')) {
+    notesList.innerHTML = '<div class="text-muted text-center py-5" id="noNotesMsg">אין הערות עדיין. הוסף הערה ראשונה למטה.</div>';
+  }
+  // Temp IDs (not yet saved) – no server call needed
+  if (String(id).indexOf('temp-') === 0) return;
+  // Background: delete from server
+  fetch('/api/patients/' + PATIENT_ID + '/notes/' + id, { method: 'DELETE' })
+    .then(function(r) { return r.json(); }).then(function(d) {
+      if (!d.ok) {
+        var noMsg = document.getElementById('noNotesMsg');
+        if (noMsg) noMsg.remove();
+        if (removedHtml) notesList.insertAdjacentHTML('beforeend', removedHtml);
+        alert('שגיאה: ' + (d.error || 'מחיקה נכשלה'));
+      }
+    }).catch(function(err) {
+      var noMsg = document.getElementById('noNotesMsg');
+      if (noMsg) noMsg.remove();
+      if (removedHtml) notesList.insertAdjacentHTML('beforeend', removedHtml);
+      alert('שגיאת רשת: ' + err);
+    });
+}
+
+// ── Emergency Contacts (local-first, optimistic UI) ──
+var _ecCount = {{ emergency_contacts|length }};
+
+function addEC() {
+  var name = document.getElementById('ecName').value.trim();
+  var phone = document.getElementById('ecPhone').value.trim();
+  if (!name || !phone) return alert('יש למלא שם וטלפון');
+  if (_ecCount >= 3) return alert('ניתן להוסיף עד 3 אנשי קשר');
+
+  // Optimistic: add to UI immediately
+  var tempId = 'temp-' + Date.now();
+  var list = document.getElementById('emergencyList');
+  var noMsg = document.getElementById('noECMsg');
+  if (noMsg) noMsg.remove();
+  var safeName = name.replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  var safePhone = phone.replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  var html = '<div class="card mb-2 shadow-sm" id="ec-' + tempId + '">' +
+    '<div class="card-body py-2 d-flex justify-content-between align-items-center">' +
+    '<div><strong>' + safeName + '</strong><span class="text-muted mx-2">|</span>' +
+    '<a href="tel:' + safePhone + '" class="text-decoration-none">' + safePhone + '</a></div>' +
+    '<div class="d-flex gap-1">' +
+    '<button class="btn btn-outline-primary btn-sm py-0 px-1" onclick="editEC(\'' + tempId + '\', \'' + safeName.replace(/'/g,"\\'") + '\', \'' + safePhone.replace(/'/g,"\\'") + '\')" title="ערוך">&#9998;</button>' +
+    '<button class="btn btn-outline-danger btn-sm py-0 px-1" onclick="deleteEC(\'' + tempId + '\')" title="מחק">&#10006;</button>' +
+    '</div></div></div>';
+  list.insertAdjacentHTML('beforeend', html);
+  _ecCount++;
+  document.getElementById('ecName').value = '';
+  document.getElementById('ecPhone').value = '';
+  // Hide add form if reached 3
+  var addCard = document.getElementById('ecAddCard');
+  if (_ecCount >= 3 && addCard) addCard.style.display = 'none';
+
+  // Background: save to server
+  fetch('/api/patients/' + PATIENT_ID + '/emergency-contacts', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ name: name, phone: phone })
+  }).then(function(r) { return r.json(); }).then(function(d) {
+    if (d.ok) {
+      var el = document.getElementById('ec-' + tempId);
+      if (el) {
+        el.id = 'ec-' + d.id;
+        // Update edit/delete buttons with real ID
+        var editBtn = el.querySelector('.btn-outline-primary');
+        if (editBtn) editBtn.setAttribute('onclick', "editEC(" + d.id + ", '" + safeName.replace(/'/g,"\\'") + "', '" + safePhone.replace(/'/g,"\\'") + "')");
+        var delBtn = el.querySelector('.btn-outline-danger');
+        if (delBtn) delBtn.setAttribute('onclick', "deleteEC(" + d.id + ")");
+      }
+    } else {
+      var el = document.getElementById('ec-' + tempId);
+      if (el) el.remove();
+      _ecCount--;
+      if (addCard) addCard.style.display = '';
+      alert('שגיאה: ' + (d.error || 'שמירה נכשלה'));
+    }
+  }).catch(function(err) {
+    var el = document.getElementById('ec-' + tempId);
+    if (el) el.remove();
+    _ecCount--;
+    if (addCard) addCard.style.display = '';
+    alert('שגיאת רשת: ' + err);
+  });
+}
+
+function editEC(id, name, phone) {
+  document.getElementById('editECId').value = id;
+  document.getElementById('editECName').value = name;
+  document.getElementById('editECPhone').value = phone;
+  new bootstrap.Modal(document.getElementById('editECModal')).show();
+}
+
+function saveEditEC() {
+  var id = document.getElementById('editECId').value;
+  var name = document.getElementById('editECName').value.trim();
+  var phone = document.getElementById('editECPhone').value.trim();
+  if (!name || !phone) return;
+
+  // Optimistic: update UI immediately
+  var el = document.getElementById('ec-' + id);
+  var oldHtml = el ? el.innerHTML : null;
+  if (el) {
+    var safeName = name.replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    var safePhone = phone.replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    el.querySelector('strong').textContent = name;
+    el.querySelector('a').textContent = phone;
+    el.querySelector('a').href = 'tel:' + phone;
+    var editBtn = el.querySelector('.btn-outline-primary');
+    if (editBtn) editBtn.setAttribute('onclick', "editEC(" + id + ", '" + safeName.replace(/'/g,"\\'") + "', '" + safePhone.replace(/'/g,"\\'") + "')");
+  }
+  bootstrap.Modal.getInstance(document.getElementById('editECModal')).hide();
+
+  // Background: save to server
+  fetch('/api/patients/' + PATIENT_ID + '/emergency-contacts/' + id, {
+    method: 'PUT', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ name: name, phone: phone })
+  }).then(function(r) { return r.json(); }).then(function(d) {
+    if (!d.ok) {
+      if (el && oldHtml) el.innerHTML = oldHtml;
+      alert('שגיאה: ' + (d.error || 'עדכון נכשל'));
+    }
+  }).catch(function(err) {
+    if (el && oldHtml) el.innerHTML = oldHtml;
+    alert('שגיאת רשת: ' + err);
+  });
+}
+
+function deleteEC(id) {
+  if (!confirm('למחוק איש קשר זה?')) return;
+
+  // Optimistic: remove from UI immediately
+  var el = document.getElementById('ec-' + id);
+  var removedHtml = el ? el.outerHTML : null;
+  if (el) el.remove();
+  _ecCount--;
+  var addCard = document.getElementById('ecAddCard');
+  if (_ecCount < 3 && addCard) addCard.style.display = '';
+  if (!_ecCount) {
+    var list = document.getElementById('emergencyList');
+    list.innerHTML = '<div class="text-muted text-center py-4" id="noECMsg">אין אנשי קשר לחירום. ניתן להוסיף עד 3.</div>';
+  }
+
+  // Temp IDs – no server call needed
+  if (String(id).indexOf('temp-') === 0) return;
+
+  // Background: delete from server
+  fetch('/api/patients/' + PATIENT_ID + '/emergency-contacts/' + id, { method: 'DELETE' })
+    .then(function(r) { return r.json(); }).then(function(d) {
+      if (!d.ok) {
+        var list = document.getElementById('emergencyList');
+        var noMsg = document.getElementById('noECMsg');
+        if (noMsg) noMsg.remove();
+        if (removedHtml) list.insertAdjacentHTML('beforeend', removedHtml);
+        _ecCount++;
+        if (_ecCount >= 3 && addCard) addCard.style.display = 'none';
+        alert('שגיאה: ' + (d.error || 'מחיקה נכשלה'));
+      }
+    }).catch(function(err) {
+      var list = document.getElementById('emergencyList');
+      var noMsg = document.getElementById('noECMsg');
+      if (noMsg) noMsg.remove();
+      if (removedHtml) list.insertAdjacentHTML('beforeend', removedHtml);
+      _ecCount++;
+      if (_ecCount >= 3 && addCard) addCard.style.display = 'none';
+      alert('שגיאת רשת: ' + err);
+    });
+}
+
+// ── Referral ──
+function createReferral() {
+  var broker = document.getElementById('refBroker').value.trim();
+  var pct = parseFloat(document.getElementById('refPercent').value) || 0;
+  var sess = parseInt(document.getElementById('refSessions').value) || 0;
+  if (!broker || pct <= 0 || sess <= 0) return alert('יש למלא את כל השדות');
+  fetch('/api/patients/' + PATIENT_ID + '/referral', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ brokerName: broker, percentage: pct, totalSessions: sess })
+  }).then(r => r.json()).then(d => { if (d.ok) location.reload(); else alert(d.error); });
+}
+
+function deleteReferral() {
+  if (!confirm('להסיר את הסכם דמי התיווך?')) return;
+  fetch('/api/patients/' + PATIENT_ID + '/referral', { method: 'DELETE' })
+    .then(r => r.json()).then(d => { if (d.ok) location.reload(); else alert(d.error); });
+}
+
+// Track referral payment data locally for optimistic updates
+var _refPayments = {{ (referral_summary.payments if referral_summary else []) | tojson }};
+var _refOwed = {{ referral_summary.owed_so_far if referral_summary else 0 }};
+
+function toggleReferralPay(paymentId, paid) {
+  // Optimistic: update local data + UI immediately
+  var payment = _refPayments.find(function(p) { return p.id === paymentId; });
+  if (payment) payment.paid_to_broker = paid ? 1 : 0;
+  _updateRefSummary();
+
+  // Background: save to server
+  fetch('/api/patients/' + PATIENT_ID + '/referral/pay/' + paymentId, {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ paid: paid })
+  }).then(function(r) { return r.json(); }).then(function(d) {
+    if (!d.ok) {
+      // Rollback
+      if (payment) payment.paid_to_broker = paid ? 0 : 1;
+      _updateRefSummary();
+      alert(d.error || 'שגיאה');
+    }
+  }).catch(function(err) {
+    if (payment) payment.paid_to_broker = paid ? 0 : 1;
+    _updateRefSummary();
+    alert('שגיאת רשת: ' + err);
+  });
+}
+
+function _updateRefSummary() {
+  var totalPaid = 0;
+  _refPayments.forEach(function(p) { if (p.paid_to_broker) totalPaid += p.amount; });
+  totalPaid = Math.round(totalPaid * 100) / 100;
+  var unpaid = Math.round((_refOwed - totalPaid) * 100) / 100;
+
+  var paidEl = document.getElementById('refPaidVal');
+  var unpaidEl = document.getElementById('refUnpaidVal');
+  var unpaidCard = document.getElementById('refUnpaidCard');
+  if (paidEl) paidEl.innerHTML = totalPaid + '&#8362;';
+  if (unpaidEl) {
+    unpaidEl.innerHTML = unpaid + '&#8362;';
+    unpaidEl.className = unpaid > 0 ? 'fw-bold text-danger' : 'fw-bold';
+  }
+  if (unpaidCard) {
+    unpaidCard.className = unpaid > 0 ? 'border rounded p-2 border-danger' : 'border rounded p-2';
+  }
+}
+
+function _showRefPaidCtx(event) {
+  event.preventDefault();
+  event.stopPropagation();
+  var menu = _ensureApptCtx();
+  menu.innerHTML = '';
+  var hdr = document.createElement('div');
+  hdr.style.cssText = 'padding:5px 14px;font-size:.75rem;color:#6c757d;font-weight:600;';
+  hdr.textContent = 'עדכון סכום ששולם למתווך';
+  menu.appendChild(hdr);
+  menu.appendChild(_ctxItem('&#9998;', 'הזן סכום ששולם', '#198754', function() {
+    var current = 0;
+    _refPayments.forEach(function(p) { if (p.paid_to_broker) current += p.amount; });
+    var input = prompt('הזן את הסכום הכולל ששולם למתווך:', Math.round(current * 100) / 100);
+    if (input === null) return;
+    var amount = parseFloat(input);
+    if (isNaN(amount) || amount < 0) return alert('סכום לא תקין');
+    // Auto-toggle payments to match the entered amount
+    var remaining = amount;
+    _refPayments.forEach(function(p) {
+      if (remaining >= p.amount) {
+        if (!p.paid_to_broker) toggleReferralPay(p.id, true);
+        p.paid_to_broker = 1;
+        remaining -= p.amount;
+      } else {
+        if (p.paid_to_broker) toggleReferralPay(p.id, false);
+        p.paid_to_broker = 0;
+      }
+    });
+    _updateRefSummary();
+  }));
+  var x = event.clientX, y = event.clientY;
+  menu.style.left = x + 'px';
+  menu.style.top = y + 'px';
+  menu.style.display = 'block';
+  requestAnimationFrame(function() {
+    var r = menu.getBoundingClientRect();
+    if (r.right > window.innerWidth) menu.style.left = (x - r.width) + 'px';
+    if (r.bottom > window.innerHeight) menu.style.top = (y - r.height) + 'px';
+  });
+}
+
+// ══════════════════════════════════════════════════════════
+// ── Appointment History – dynamic table + right-click ──
+// ══════════════════════════════════════════════════════════
+
+var _appts = {{ appointments | tojson }};
+
+function _fmtDate(d) {
+  if (!d || d.length < 10) return d || '';
+  var parts = d.split('-');
+  return parseInt(parts[2],10) + '/' + parseInt(parts[1],10) + '/' + parts[0];
+}
+
+function _renderHistory() {
+  var container = document.getElementById('historyTableContainer');
+  if (!_appts.length) {
+    container.innerHTML = '<div class="text-muted text-center py-4">אין תורים עדיין.</div>';
+    return;
+  }
+  var rows = _appts.map(function(a, i) {
+    var sm = STATUS_MAP[a.status] || ['bg-secondary', a.status];
+    var isCancelled = (a.status === 'cancelled');
+    var treated, payLabel;
+    if (isCancelled) {
+      treated = '<span class="badge bg-light text-muted border">-</span>';
+      payLabel = '<span class="badge bg-light text-muted border">-</span>';
+    } else {
+      treated = a.treated
+        ? '<span class="badge bg-primary">&#10004; בוצע</span>'
+        : '<span class="badge bg-light text-muted border">טרם התקיים</span>';
+      if (a.paid) {
+        payLabel = '<span class="badge bg-success">&#10004; ' + (PAYMENT_LABELS[a.paymentMethod] || 'שולם') + '</span>';
+      } else if (a.patientMarkedPaid) {
+        payLabel = '<span class="badge" style="background:#6f42c1;color:#fff;">&#8362; ממתין לאישור</span>';
+      } else {
+        payLabel = '<span class="badge bg-light text-muted border">לא</span>';
+      }
+    }
+    return '<tr>' +
+      '<td>' + (i+1) + '</td>' +
+      '<td class="text-nowrap" style="cursor:context-menu" oncontextmenu="_showApptCtx(event,\'status\',' + i + ')" title="קליק ימני לשינוי">' + _fmtDate(a.date) + '</td>' +
+      '<td style="cursor:context-menu" oncontextmenu="_showApptCtx(event,\'status\',' + i + ')" title="קליק ימני לשינוי">' + a.time + '</td>' +
+      '<td style="cursor:context-menu" oncontextmenu="_showApptCtx(event,\'status\',' + i + ')" title="קליק ימני לשינוי"><span class="badge ' + sm[0] + '">' + sm[1] + '</span></td>' +
+      '<td style="cursor:context-menu" oncontextmenu="_showApptCtx(event,\'treated\',' + i + ')" title="קליק ימני לשינוי">' + treated + '</td>' +
+      '<td style="cursor:context-menu" oncontextmenu="_showApptCtx(event,\'paid\',' + i + ')" title="קליק ימני לשינוי">' + payLabel + '</td>' +
+    '</tr>';
+  }).join('');
+
+  container.innerHTML =
+    '<div class="table-responsive"><table class="table table-sm table-hover align-middle">' +
+    '<thead class="table-light"><tr><th>#</th><th>תאריך</th><th>שעה</th><th>סטטוס</th><th>טיפול</th><th>תשלום</th></tr></thead>' +
+    '<tbody>' + rows + '</tbody></table></div>' +
+    '<p class="text-muted small text-end mt-1">' + _appts.length + ' רשומות &nbsp;|&nbsp; קליק ימני על שדה לעריכה</p>';
+}
+
+// ── Context menu ──
+var _apptCtx = null;
+function _ensureApptCtx() {
+  if (_apptCtx) return _apptCtx;
+  _apptCtx = document.createElement('div');
+  Object.assign(_apptCtx.style, {
+    position:'fixed', zIndex:'99999',
+    background:'#fff', border:'1px solid #dee2e6', borderRadius:'8px',
+    boxShadow:'0 4px 20px rgba(0,0,0,.18)', padding:'4px 0',
+    minWidth:'180px', display:'none'
+  });
+  document.body.appendChild(_apptCtx);
+  document.addEventListener('click', function() { _apptCtx.style.display = 'none'; });
+  document.addEventListener('keydown', function(e) { if (e.key === 'Escape') _apptCtx.style.display = 'none'; });
+  document.addEventListener('scroll', function() { _apptCtx.style.display = 'none'; }, true);
+  return _apptCtx;
+}
+
+function _ctxItem(icon, label, color, onclick) {
+  var btn = document.createElement('button');
+  Object.assign(btn.style, {
+    display:'flex', alignItems:'center', gap:'8px',
+    width:'100%', padding:'7px 14px',
+    border:'none', background:'none', cursor:'pointer',
+    fontSize:'.85rem', color:'#212529', whiteSpace:'nowrap'
+  });
+  btn.innerHTML = '<span style="color:' + color + ';font-size:1rem;">' + icon + '</span>' + label;
+  btn.onmouseenter = function() { btn.style.background = '#f8f9fa'; };
+  btn.onmouseleave = function() { btn.style.background = 'none'; };
+  btn.addEventListener('click', function(e) { e.stopPropagation(); _apptCtx.style.display = 'none'; onclick(); });
+  return btn;
+}
+
+function _showApptCtx(event, field, idx) {
+  event.preventDefault();
+  event.stopPropagation();
+  var menu = _ensureApptCtx();
+  menu.innerHTML = '';
+  var appt = _appts[idx];
+
+  var hdr = document.createElement('div');
+  hdr.style.cssText = 'padding:5px 14px;font-size:.75rem;color:#6c757d;font-weight:600;';
+
+  if (field === 'status') {
+    hdr.textContent = 'שינוי סטטוס';
+    menu.appendChild(hdr);
+    if (appt.status !== 'booked')
+      menu.appendChild(_ctxItem('&#10004;', 'אשר תור', '#198754', function() { _apptChangeStatus(idx, 'booked'); }));
+    if (appt.status !== 'cancelled')
+      menu.appendChild(_ctxItem('&#10006;', 'בטל תור', '#dc3545', function() { _apptChangeStatus(idx, 'cancelled'); }));
+    if (appt.status !== 'pending')
+      menu.appendChild(_ctxItem('&#9203;', 'החזר לממתין', '#ffc107', function() { _apptChangeStatus(idx, 'pending'); }));
+    // Separator + reschedule
+    var sep = document.createElement('hr');
+    sep.style.cssText = 'margin:3px 8px;border-color:#e9ecef;';
+    menu.appendChild(sep);
+    menu.appendChild(_ctxItem('&#128197;', 'שינוי מועד', '#0d6efd', function() { openReschedule(idx); }));
+  }
+
+  else if (field === 'treated') {
+    hdr.textContent = 'טיפול';
+    menu.appendChild(hdr);
+    if (appt.status === 'cancelled') {
+      var warn = document.createElement('div');
+      warn.style.cssText = 'padding:5px 14px;font-size:.8rem;color:#dc3545;';
+      warn.textContent = 'לא ניתן לסמן טיפול בתור שבוטל';
+      menu.appendChild(warn);
+    } else if (!appt.treated) {
+      menu.appendChild(_ctxItem('&#10004;', 'סמן טיפול בוצע', '#0d6efd', function() { _apptMark(idx, 'treated', true); }));
+    } else {
+      menu.appendChild(_ctxItem('&#8617;', 'בטל סימון טיפול', '#6c757d', function() { _apptMark(idx, 'treated', false); }));
+    }
+  }
+
+  else if (field === 'paid') {
+    hdr.textContent = 'תשלום';
+    menu.appendChild(hdr);
+    if (appt.status === 'cancelled') {
+      var warn = document.createElement('div');
+      warn.style.cssText = 'padding:5px 14px;font-size:.8rem;color:#dc3545;';
+      warn.textContent = 'לא ניתן לסמן תשלום בתור שבוטל';
+      menu.appendChild(warn);
+    } else if (!appt.paid) {
+      if (!appt.treated) {
+        var warn = document.createElement('div');
+        warn.style.cssText = 'padding:5px 14px;font-size:.8rem;color:#dc3545;';
+        warn.textContent = 'יש לסמן טיפול בוצע קודם';
+        menu.appendChild(warn);
+      } else {
+        if (appt.patientMarkedPaid) {
+          var info = document.createElement('div');
+          info.style.cssText = 'padding:5px 14px;font-size:.8rem;color:#6f42c1;font-weight:600;';
+          info.textContent = 'המטופל סימן ששילם' + (appt.patientPaymentMethod ? ' (' + (PAYMENT_LABELS[appt.patientPaymentMethod] || appt.patientPaymentMethod) + ')' : '');
+          menu.appendChild(info);
+          var sep = document.createElement('hr');
+          sep.style.cssText = 'margin:3px 8px;border-color:#e9ecef;';
+          menu.appendChild(sep);
+        }
+        menu.appendChild(_ctxItem('&#128179;', 'ביט', '#198754', function() { _apptMark(idx, 'paid', true, 'bit'); }));
+        menu.appendChild(_ctxItem('&#128241;', 'פייבוקס', '#198754', function() { _apptMark(idx, 'paid', true, 'paybox'); }));
+        menu.appendChild(_ctxItem('&#128181;', 'מזומן', '#198754', function() { _apptMark(idx, 'paid', true, 'cash'); }));
+        menu.appendChild(_ctxItem('&#127974;', 'העברה בנקאית', '#198754', function() { _apptMark(idx, 'paid', true, 'bank'); }));
+      }
+    } else {
+      menu.appendChild(_ctxItem('&#8617;', 'בטל סימון תשלום', '#6c757d', function() { _apptMark(idx, 'paid', false); }));
+    }
+  }
+
+  var x = event.clientX, y = event.clientY;
+  menu.style.left = x + 'px';
+  menu.style.top = y + 'px';
+  menu.style.display = 'block';
+  requestAnimationFrame(function() {
+    var r = menu.getBoundingClientRect();
+    if (r.right > window.innerWidth) menu.style.left = (x - r.width) + 'px';
+    if (r.bottom > window.innerHeight) menu.style.top = (y - r.height) + 'px';
+  });
+}
+
+function _apptChangeStatus(idx, newStatus) {
+  var appt = _appts[idx];
+  var apptId = appt.id;
+  var source = appt.source || 'firebase';
+  var oldTreated = appt.treated, oldPaid = appt.paid;
+
+  appt.status = newStatus;
+  // Cancelled → auto-reset treated/paid (can't have payment on cancelled)
+  if (newStatus === 'cancelled') {
+    appt.treated = false;
+    appt.paid = false;
+    appt.paymentMethod = null;
+  }
+  _renderHistory();
+  _updateSummary();
+  _updateRefAfterTreatmentChange();
+
+  var url, fetchOpts;
+  if (newStatus === 'booked') {
+    url = '/appointments/approve/' + apptId + '?source=' + source;
+    fetchOpts = { method: 'POST' };
+  } else if (newStatus === 'cancelled') {
+    url = '/appointments/reject/' + apptId + '?source=' + source;
+    fetchOpts = { method: 'POST' };
+  } else {
+    url = '/appointments/mark/' + apptId + '?source=' + source;
+    fetchOpts = { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({field:'status', value:'pending'}) };
+  }
+
+  fetch(url, fetchOpts).then(function(r) { return r.json(); }).then(function(data) {
+    if (!data.ok) {
+      _showToast('שגיאה בעדכון סטטוס: ' + (data.error || ''), 'warning');
+    } else if (newStatus === 'cancelled' && (oldTreated || oldPaid)) {
+      // Also reset treated/paid on server
+      fetch('/appointments/mark/' + apptId + '?source=' + source, {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ field: 'treated', value: false })
+      }).catch(function(){});
+    }
+  }).catch(function() {
+    _showToast('לא ניתן לעדכן סטטוס – ייכנס לתור סנכרון', 'warning');
+  });
+}
+
+function _apptMark(idx, field, value, paymentMethod) {
+  var appt = _appts[idx];
+  var apptId = appt.id;
+  var source = appt.source || 'firebase';
+
+  // Optimistic update — server is cache-first, so changes persist locally
+  appt[field] = value;
+  if (field === 'paid' && value) { appt.paymentMethod = paymentMethod; appt.patientMarkedPaid = false; }
+  if (field === 'paid' && !value) appt.paymentMethod = null;
+  if (field === 'treated' && !value) { appt.paid = false; appt.paymentMethod = null; }
+  _renderHistory();
+  _updateSummary();
+  _updateRefAfterTreatmentChange();
+
+  // Background sync — no rollback, server handles queuing
+  fetch('/appointments/mark/' + apptId + '?source=' + source, {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ field: field, value: value, paymentMethod: paymentMethod || null })
+  }).then(function(r) { return r.json(); }).then(function(data) {
+    if (!data.ok) {
+      _showToast('שגיאה בשמירה: ' + (data.error || ''), 'warning');
+    }
+  }).catch(function() {
+    _showToast('לא ניתן לשמור – ייכנס לתור סנכרון', 'warning');
+  });
+}
+
+// ── Reschedule ──
+function openReschedule(idx) {
+  var appt = _appts[idx];
+  document.getElementById('reschedApptId').value = appt.id;
+  document.getElementById('reschedSource').value = appt.source || 'firebase';
+  document.getElementById('reschedIdx').value = idx;
+  document.getElementById('reschedOldInfo').textContent = 'מועד נוכחי: ' + _fmtDate(appt.date) + ' ' + appt.time;
+  document.getElementById('reschedDate').value = appt.date;
+  document.getElementById('reschedTime').value = appt.time;
+  document.getElementById('reschedError').classList.add('d-none');
+  new bootstrap.Modal(document.getElementById('rescheduleModal')).show();
+}
+
+function submitReschedule() {
+  var apptId = document.getElementById('reschedApptId').value;
+  var source = document.getElementById('reschedSource').value;
+  var idx = parseInt(document.getElementById('reschedIdx').value);
+  var newDate = document.getElementById('reschedDate').value;
+  var newTime = document.getElementById('reschedTime').value;
+  var errEl = document.getElementById('reschedError');
+  if (!newDate || !newTime) {
+    errEl.textContent = 'יש למלא תאריך ושעה';
+    errEl.classList.remove('d-none');
+    return;
+  }
+  errEl.classList.add('d-none');
+  fetch('/appointments/reschedule/' + apptId + '?source=' + source, {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ date: newDate, time: newTime })
+  }).then(function(r) { return r.json(); }).then(function(data) {
+    if (data.ok) {
+      _appts[idx].date = newDate;
+      _appts[idx].time = newTime;
+      _renderHistory();
+      bootstrap.Modal.getInstance(document.getElementById('rescheduleModal')).hide();
+    } else {
+      errEl.textContent = data.error || 'שגיאה';
+      errEl.classList.remove('d-none');
+    }
+  }).catch(function(err) {
+    errEl.textContent = 'שגיאת רשת: ' + err;
+    errEl.classList.remove('d-none');
+  });
+}
+
+// ── Book Appointment ──
+function submitBookAppt() {
+  var date = document.getElementById('bookDate').value;
+  var time = document.getElementById('bookTime').value;
+  var errEl = document.getElementById('bookError');
+  if (!date || !time) {
+    errEl.textContent = 'יש למלא תאריך ושעה';
+    errEl.classList.remove('d-none');
+    return;
+  }
+  errEl.classList.add('d-none');
+  fetch('/appointments/create', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ anonymousId: PATIENT_ANON_ID, date: date, time: time, durationMin: bookDur })
+  }).then(function(r) { return r.json(); }).then(function(data) {
+    if (data.ok) {
+      // Add to local array and re-render
+      _appts.unshift({
+        id: data.id, date: date, time: time, status: 'booked',
+        treated: false, paid: false, paymentMethod: null,
+        durationMin: bookDur, source: 'firebase', anonymousId: PATIENT_ANON_ID
+      });
+      _renderHistory();
+      _updateSummary();
+      bootstrap.Modal.getInstance(document.getElementById('bookApptModal')).hide();
+      document.getElementById('bookDate').value = '';
+      document.getElementById('bookTime').value = '';
+    } else {
+      errEl.textContent = data.error || 'שגיאה';
+      errEl.classList.remove('d-none');
+    }
+  }).catch(function(err) {
+    errEl.textContent = 'שגיאת רשת: ' + err;
+    errEl.classList.remove('d-none');
+  });
+}
+
+// Render history table + summary on page load
+_renderHistory();
+_updateSummary();
+</script>
+{% endblock %}

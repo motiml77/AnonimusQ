@@ -1,0 +1,247 @@
+{% extends "base.html" %}
+{% block title %}הגדרות{% endblock %}
+
+{% block content %}
+<h4 class="mb-4">&#9881; הגדרות</h4>
+
+<!-- ============ Doctor ID info ============ -->
+<div class="card mb-4 shadow-sm border-info">
+  <div class="card-header fw-bold bg-info bg-opacity-10">&#128100; מזהה המטפל</div>
+  <div class="card-body">
+    <p class="mb-1">
+      שם המשתמש שלך: <strong class="font-monospace fs-5">{{ username }}</strong>
+    </p>
+    <p class="text-muted small mb-2">
+      זהו המזהה שלך ב-Firebase. כל הנתונים שלך מאוחסנים תחת <code>/doctors/{{ username }}/...</code>
+    </p>
+    <p class="mb-1 fw-semibold">קישור לשיתוף עם מטופלים:</p>
+    <div class="input-group" style="max-width:600px;">
+      <input type="text" class="form-control font-monospace small"
+             id="patient-link" readonly
+             value="https://anonimusq.motiml77.workers.dev/index.html?doctor={{ username }}" />
+      <button class="btn btn-outline-secondary" onclick="copyPatientLink()">העתק</button>
+    </div>
+    <div class="form-text">שלח קישור זה למטופלים – הוא יזהה אוטומטית את התיקייה שלך בפיירבייס</div>
+  </div>
+</div>
+
+
+<!-- ============ Section 1: Availability ============ -->
+<div class="card mb-4 shadow-sm">
+  <div class="card-header fw-bold">&#128197; שעות עבודה וזמינות</div>
+  <div class="card-body">
+    <form method="post" action="{{ url_for('settings_save_availability') }}">
+
+      <div class="mb-3">
+        <label class="form-label fw-semibold">ימי עבודה</label>
+        <div class="d-flex flex-wrap gap-3">
+          {% set day_names = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'] %}
+          {% for i in range(7) %}
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" name="working_days"
+                   value="{{ i }}" id="day{{ i }}"
+                   {% if i in availability.workingDays %}checked{% endif %} />
+            <label class="form-check-label" for="day{{ i }}">{{ day_names[i] }}</label>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div class="row mb-3">
+        <div class="col-md-3">
+          <label class="form-label fw-semibold">שעת התחלה</label>
+          <input type="time" name="start_time" class="form-control"
+                 value="{{ availability.workingHours.start }}" />
+        </div>
+        <div class="col-md-3">
+          <label class="form-label fw-semibold">שעת סיום</label>
+          <input type="time" name="end_time" class="form-control"
+                 value="{{ availability.workingHours.end }}" />
+        </div>
+        <div class="col-md-3">
+          <label class="form-label fw-semibold">משך תור (דקות)</label>
+          <select name="slot_duration" class="form-select">
+            {% for dur in [30, 45, 60, 90, 120] %}
+            <option value="{{ dur }}" {% if dur == availability.slotDurationMin %}selected{% endif %}>
+              {{ dur }} דקות
+            </option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+
+      <div class="mb-4">
+        <label class="form-label fw-semibold">ימי חסימה (YYYY-MM-DD, מופרדים בפסיק)</label>
+        <input type="text" name="blocked_dates" class="form-control font-monospace"
+               value="{{ availability.blockedDates | join(', ') }}"
+               placeholder="2026-03-15, 2026-04-01" />
+      </div>
+
+      <div class="mb-4 p-3 rounded" style="background:#fff3e0;border:1px solid #ffe0b2;">
+        <div class="form-check form-switch mb-1">
+          <input class="form-check-input" type="checkbox" name="disable_online_booking"
+                 id="disableOnlineBooking" role="switch"
+                 {% if availability.get('disableOnlineBooking', False) %}checked{% endif %} />
+          <label class="form-check-label fw-semibold" for="disableOnlineBooking"
+                 style="color:#e65100;">&#128683; נטרל קביעת תורים אונליין</label>
+        </div>
+        <div class="text-muted" style="font-size:.8rem;">
+          כאשר מופעל – מטופלים לא יוכלו לקבוע תורים חדשים באתר. תורים קיימים ימשיכו להופיע.
+        </div>
+      </div>
+
+      <button type="submit" class="btn btn-primary">שמור הגדרות</button>
+    </form>
+  </div>
+</div>
+
+
+<!-- ============ Section 2: Payment Settings ============ -->
+<div class="card mb-4 shadow-sm">
+  <div class="card-header fw-bold">&#8362; הגדרות תשלום</div>
+  <div class="card-body">
+    <form method="post" action="{{ url_for('settings_save_payment') }}" style="max-width:480px;">
+      <div class="mb-3">
+        <label class="form-label fw-semibold">מחיר ברירת מחדל לביקור (₪)</label>
+        <input type="number" name="default_price" class="form-control" min="0" step="any"
+               value="{{ payment_settings.defaultPrice or 0 }}" />
+        <div class="form-text">מחיר ברירת מחדל שיוצג למטופלים. ניתן לשנות לכל מטופל בנפרד.</div>
+      </div>
+      <div class="row g-3 mb-3">
+        <div class="col">
+          <label class="form-label fw-semibold">&#128279; קישור תשלום ביט</label>
+          <input type="url" name="bit_link" class="form-control ltr" dir="ltr"
+                 placeholder="https://www.bitpay.co.il/..."
+                 value="{{ payment_settings.bitLink or '' }}" />
+          <div class="form-text">קישור ביט – הלחיצה באתר המטופל תפתח קישור זה.</div>
+        </div>
+        <div class="col">
+          <label class="form-label fw-semibold">&#128279; קישור תשלום פייבוקס</label>
+          <input type="url" name="paybox_link" class="form-control ltr" dir="ltr"
+                 placeholder="https://payboxapp.page.link/..."
+                 value="{{ payment_settings.payboxLink or '' }}" />
+          <div class="form-text">קישור פייבוקס – הלחיצה באתר המטופל תפתח קישור זה.</div>
+        </div>
+      </div>
+      <button type="submit" class="btn btn-primary btn-sm">שמור הגדרות תשלום</button>
+    </form>
+  </div>
+</div>
+
+
+<!-- ============ Section 3: Firebase ============ -->
+
+<div class="card mb-4 shadow-sm">
+  <div class="card-header fw-bold">&#128293; חיבור Firebase</div>
+  <div class="card-body">
+
+    <div class="mb-3">
+      {% if connected %}
+      <span class="badge bg-success fs-6 px-3 py-2">&#9679; Firebase מחובר</span>
+      <p class="text-muted small mt-2 mb-0">
+        נתונים מאוחסנים תחת <code>/doctors/{{ username }}/...</code>
+      </p>
+      {% else %}
+      <span class="badge bg-warning fs-6 px-3 py-2">&#9679; לא מחובר</span>
+      <p class="text-muted small mt-2 mb-0">החיבור ל-Firebase יתבצע אוטומטית בכניסה הבאה.</p>
+      {% endif %}
+    </div>
+
+    {% if connected %}
+    <form method="post" action="{{ url_for('firebase_manual_sync') }}" class="d-inline">
+      <button type="submit" class="btn btn-outline-success btn-sm">&#8635; סנכרן תורים עכשיו</button>
+    </form>
+    {% else %}
+    <form method="post" action="{{ url_for('firebase_connect') }}" class="d-inline">
+      <button type="submit" class="btn btn-outline-primary btn-sm">&#9889; חבר עכשיו</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+
+
+<!-- ============ Section 4: Change Password ============ -->
+<div class="card mb-4 shadow-sm">
+  <div class="card-header fw-bold">&#128274; שינוי סיסמא</div>
+  <div class="card-body">
+    <div class="alert alert-info py-2 small mb-3">
+      <strong>&#127760; נדרש חיבור לאינטרנט</strong> לשינוי סיסמא.<br>
+      הסיסמא תעודכן הן לוקאלית והן בשרת, וכל הנתונים יוצפנו מחדש עם הסיסמא החדשה.
+    </div>
+    <div class="alert alert-warning py-2 small mb-3">
+      <strong>&#9888; חשוב!</strong> אם תשכח את הסיסמא, לא ניתן יהיה לשחזר את הנתונים ממכשיר אחר.<br>
+      הנתונים במחשב זה יישארו זמינים, אבל הנתונים המוצפנים בענן יאבדו.
+    </div>
+    <form method="post" action="{{ url_for('change_password') }}" style="max-width:400px;" id="changePasswordForm">
+      <div class="mb-3">
+        <label class="form-label">סיסמא נוכחית</label>
+        <input type="password" name="old_password" class="form-control" required />
+      </div>
+      <div class="mb-3">
+        <label class="form-label">סיסמא חדשה</label>
+        <input type="password" name="new_password" class="form-control" required />
+      </div>
+      <div class="mb-4">
+        <label class="form-label">אימות סיסמא חדשה</label>
+        <input type="password" name="confirm_password" class="form-control" required />
+      </div>
+      <button type="submit" class="btn btn-danger" id="changePwBtn">שנה סיסמא</button>
+      <div id="changePwProgress" class="mt-3 d-none">
+        <div class="progress" style="height:20px;">
+          <div class="progress-bar progress-bar-striped progress-bar-animated bg-warning"
+               style="width:100%">מצפין מחדש את כל הנתונים...</div>
+        </div>
+        <small class="text-muted mt-1 d-block">אל תסגור את הדפדפן ואל תנתק את החיבור לאינטרנט</small>
+      </div>
+    </form>
+    <script>
+    document.getElementById('changePasswordForm').addEventListener('submit', function() {
+      document.getElementById('changePwBtn').disabled = true;
+      document.getElementById('changePwBtn').textContent = 'מעדכן...';
+      document.getElementById('changePwProgress').classList.remove('d-none');
+    });
+    </script>
+  </div>
+</div>
+
+<!-- ============ Section 5: Connection Info ============ -->
+<div class="card mb-4 shadow-sm border-secondary">
+  <div class="card-header fw-bold bg-light">&#128225; מידע על חיבור</div>
+  <div class="card-body small">
+    <table class="table table-sm table-borderless mb-0" style="max-width:500px;">
+      <tr>
+        <td class="fw-semibold">התחברות</td>
+        <td><span class="badge bg-success">עובד אופליין</span> לאחר הרישום הראשוני</td>
+      </tr>
+      <tr>
+        <td class="fw-semibold">הרשמה ראשונה</td>
+        <td><span class="badge bg-primary">דורש אינטרנט</span></td>
+      </tr>
+      <tr>
+        <td class="fw-semibold">שינוי סיסמא</td>
+        <td><span class="badge bg-primary">דורש אינטרנט</span></td>
+      </tr>
+      <tr>
+        <td class="fw-semibold">צפייה בתורים</td>
+        <td><span class="badge bg-success">עובד אופליין</span> מהמטמון המקומי</td>
+      </tr>
+      <tr>
+        <td class="fw-semibold">סנכרון תורים</td>
+        <td><span class="badge bg-primary">דורש אינטרנט</span></td>
+      </tr>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function copyPatientLink() {
+  const el = document.getElementById('patient-link');
+  el.select();
+  navigator.clipboard.writeText(el.value)
+    .then(() => alert('הקישור הועתק!'))
+    .catch(() => el.select());
+}
+</script>
+{% endblock %}

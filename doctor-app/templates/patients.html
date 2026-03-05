@@ -1,0 +1,772 @@
+{% extends "base.html" %}
+{% block title %}מטופלים{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <h4 class="mb-0">&#128101; ניהול מטופלים</h4>
+  <div class="d-flex gap-2 align-items-center">
+    <div class="input-group" style="width:280px;">
+      <span class="input-group-text">&#128269;</span>
+      <input type="text" id="patientSearch" class="form-control form-control-sm"
+             placeholder="חיפוש לפי שם או מזהה..."
+             oninput="filterPatients(this.value)" autocomplete="off" />
+    </div>
+    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addModal">
+      + הוסף מטופל
+    </button>
+  </div>
+</div>
+
+<!-- ============ Active Patients ============ -->
+{% if patients %}
+<div class="table-responsive">
+  <table class="table table-hover align-middle" id="activePatientsTable">
+    <thead class="table-light">
+      <tr>
+        <th style="width:40px">#</th>
+        <th>שם</th>
+        <th>טלפון</th>
+        <th>מחיר</th>
+        <th>הערות</th>
+        <th>מזהה אנונימי</th>
+        <th>פעולות</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for p in patients %}
+      <tr class="patient-row" data-id="{{ p.id }}" data-name="{{ p.name }}" data-active="1"
+          data-anon-id="{{ p.anonymous_id }}" data-is-anon="{{ p.is_anonymous or 0 }}"
+          oncontextmenu="showPatientCtx(event, {{ p.id }}, '{{ p.name }}', 1)">
+        <td class="text-muted small">{{ loop.index }}</td>
+        <td class="fw-semibold">
+          {% if p.is_anonymous %}
+          <span class="d-inline-flex align-items-center gap-1">
+            <a href="{{ url_for('patient_detail', patient_id=p.id) }}" class="text-decoration-none text-dark">
+              <span class="anon-blur">{{ p.name }}</span>
+            </a>
+            <span class="anon-eye" onclick="event.preventDefault(); this.parentElement.querySelector('.anon-blur').classList.toggle('revealed')"
+                  title="הצג/הסתר שם" style="cursor:pointer;font-size:.85rem;opacity:.6;">&#128065;</span>
+          </span>
+          {% else %}
+          <a href="{{ url_for('patient_detail', patient_id=p.id) }}" class="text-decoration-none text-dark">{{ p.name }}</a>
+          {% endif %}
+        </td>
+        <td>
+          {% if p.phone %}
+          <span class="font-monospace small">{{ p.phone }}</span>
+          {% else %}—{% endif %}
+        </td>
+        <td class="text-nowrap">{{ '%g' % (p.price or 0) }}&#8362;</td>
+        <td class="text-muted small">{{ p.notes or '—' }}</td>
+        <td>
+          <span class="font-monospace small">{{ p.anonymous_id }}</span>
+          <button class="btn btn-link btn-sm p-0 ms-1"
+                  onclick="copyUuid('{{ p.anonymous_id }}')"
+                  title="העתק מזהה">&#128203;</button>
+        </td>
+        <td>
+          <button class="btn btn-outline-info btn-sm"
+                  onclick="openHistory('{{ p.anonymous_id }}', '{{ p.name }}', {{ p.is_anonymous or 0 }})"
+                  data-bs-toggle="modal" data-bs-target="#historyModal"
+                  title="היסטוריית תורים">
+            &#128196; היסטוריה
+          </button>
+          <button class="btn btn-outline-secondary btn-sm ms-1"
+                  onclick="openEdit({{ p.id }}, '{{ p.name }}', '{{ p.phone }}', `{{ p.notes }}`, {{ p.price or 0 }}, {{ p.is_anonymous or 0 }})"
+                  data-bs-toggle="modal" data-bs-target="#editModal">
+            &#9998; ערוך
+          </button>
+          <button class="btn btn-outline-danger btn-sm ms-1"
+                  onclick="openDelete({{ p.id }}, '{{ p.name }}')"
+                  data-bs-toggle="modal" data-bs-target="#deleteModal">
+            &#128465; מחק
+          </button>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="alert alert-info">
+  אין מטופלים פעילים. לחץ <strong>"+ הוסף מטופל"</strong> להוספת הראשון.
+</div>
+{% endif %}
+
+
+<!-- ============ Inactive Patients ============ -->
+{% if inactive_patients %}
+<div class="mt-4">
+  <button class="btn btn-outline-secondary btn-sm d-flex align-items-center gap-2"
+          type="button" data-bs-toggle="collapse" data-bs-target="#inactiveSection">
+    <span id="inactiveArrow">&#9654;</span>
+    &#128683; לא פעילים – סיום טיפול
+    <span class="badge bg-secondary">{{ inactive_patients|length }}</span>
+  </button>
+  <div class="collapse mt-2" id="inactiveSection">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle table-sm opacity-75" id="inactivePatientsTable">
+        <thead class="table-light">
+          <tr>
+            <th style="width:40px">#</th>
+            <th>שם</th>
+            <th>מזהה אנונימי</th>
+            <th>פעולות</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for p in inactive_patients %}
+          <tr class="patient-row text-muted" data-id="{{ p.id }}" data-name="{{ p.name }}" data-active="0"
+              data-anon-id="{{ p.anonymous_id }}"
+              oncontextmenu="showPatientCtx(event, {{ p.id }}, '{{ p.name }}', 0)">
+            <td class="small">{{ loop.index }}</td>
+            <td>
+              {% if p.is_anonymous %}
+              <span class="d-inline-flex align-items-center gap-1">
+                <span class="anon-blur">{{ p.name }}</span>
+                <span class="anon-eye" onclick="this.parentElement.querySelector('.anon-blur').classList.toggle('revealed')"
+                      title="הצג/הסתר שם" style="cursor:pointer;font-size:.85rem;opacity:.6;">&#128065;</span>
+              </span>
+              {% else %}{{ p.name }}{% endif %}
+            </td>
+            <td>
+              <span class="font-monospace small">{{ p.anonymous_id }}</span>
+            </td>
+            <td>
+              <button class="btn btn-outline-success btn-sm"
+                      onclick="setPatientActive({{ p.id }}, '{{ p.name }}', 1)">
+                &#9654; החזר לפעילים
+              </button>
+              <button class="btn btn-outline-info btn-sm ms-1"
+                      onclick="openHistory('{{ p.anonymous_id }}', '{{ p.name }}', {{ p.is_anonymous or 0 }})"
+                      data-bs-toggle="modal" data-bs-target="#historyModal">
+                &#128196; היסטוריה
+              </button>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p class="text-muted small mt-1 mb-0">
+      &#9432; המזהים האנונימיים של מטופלים לא פעילים שמורים ולא ישומשו מחדש.
+    </p>
+  </div>
+</div>
+{% endif %}
+
+
+<!-- ============ History Modal ============ -->
+<div class="modal fade" id="historyModal" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="historyModalTitle">&#128196; היסטוריית תורים</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" id="historyModalBody">
+        <p class="text-center text-muted py-3">טוען...</p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">סגור</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ============ Add Modal ============ -->
+<div class="modal fade" id="addModal" tabindex="-1">
+  <div class="modal-dialog modal-sm modal-dialog-centered">
+    <div class="modal-content shadow">
+      <div class="modal-header border-0 pb-0">
+        <h5 class="modal-title fw-bold">&#128101; מטופל חדש</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="post" action="{{ url_for('patients_add') }}" id="addForm">
+        <!-- Hidden field carries the previewed ID to the server -->
+        <input type="hidden" name="suggested_id" id="suggestedIdInput" value="" />
+        <div class="modal-body pt-2">
+
+          <!-- UUID preview badge -->
+          <div class="text-center py-3 mb-3"
+               style="background:linear-gradient(135deg,#f0f4ff,#e8f5e9);border-radius:12px;">
+            <div class="text-muted mb-1" style="font-size:.75rem;letter-spacing:.05em;">מזהה אנונימי</div>
+            <div id="previewId"
+                 style="font-size:2rem;font-weight:700;letter-spacing:.25em;color:#0d6efd;font-family:monospace;">
+              •••••
+            </div>
+            <div class="text-muted" style="font-size:.7rem;">נוצר אוטומטית ומאומת כייחודי</div>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold mb-1">שם מלא <span class="text-danger">*</span></label>
+            <input type="text" name="name" id="addNameInput" class="form-control" required />
+          </div>
+          <div class="mb-1">
+            <label class="form-label fw-semibold mb-1">טלפון</label>
+            <input type="tel" name="phone" class="form-control" />
+          </div>
+          <div class="mb-1">
+            <label class="form-label fw-semibold mb-1">מחיר (₪)</label>
+            <input type="number" name="price" class="form-control" min="0" step="any"
+                   placeholder="ברירת מחדל מהגדרות" />
+          </div>
+          <div class="form-check mt-2">
+            <input type="checkbox" name="is_anonymous" id="addAnonymous" class="form-check-input" />
+            <label class="form-check-label" for="addAnonymous">מטופל אנונימי (שם מטושטש)</label>
+          </div>
+        </div>
+        <div class="modal-footer border-0 pt-0">
+          <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">ביטול</button>
+          <button type="submit" class="btn btn-primary btn-sm px-4">&#10003; הוסף מטופל</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+
+<!-- ============ Edit Modal ============ -->
+<div class="modal fade" id="editModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">עריכת מטופל</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="post" id="editForm" action="">
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">שם מלא <span class="text-danger">*</span></label>
+            <input type="text" name="name" id="editName" class="form-control" required />
+          </div>
+          <div class="mb-3">
+            <label class="form-label">טלפון</label>
+            <input type="tel" name="phone" id="editPhone" class="form-control" />
+          </div>
+          <div class="mb-3">
+            <label class="form-label">הערות</label>
+            <textarea name="notes" id="editNotes" class="form-control" rows="2"></textarea>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">מחיר (₪)</label>
+            <input type="number" name="price" id="editPrice" class="form-control" min="0" step="any" />
+          </div>
+          <div class="form-check">
+            <input type="checkbox" name="is_anonymous" id="editAnonymous" class="form-check-input" />
+            <label class="form-check-label" for="editAnonymous">מטופל אנונימי (שם מטושטש)</label>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">ביטול</button>
+          <button type="submit" class="btn btn-primary">שמור</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+
+<!-- ============ Delete Modal ============ -->
+<div class="modal fade" id="deleteModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title text-danger">מחיקת מטופל</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="post" id="deleteForm" action="">
+        <div class="modal-body">
+          <p>האם למחוק את <strong id="deleteName"></strong>?</p>
+          <p class="text-danger small">פעולה זו בלתי הפיכה. תורים קיימים ב-Firebase לא יושפעו.</p>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">ביטול</button>
+          <button type="submit" class="btn btn-danger">מחק</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// ─── Patient search/filter ────────────────────────────────────────────────
+function filterPatients(query) {
+  var q = query.trim().toLowerCase();
+  // Filter active patients table
+  var activeRows = document.querySelectorAll('#activePatientsTable tbody tr.patient-row');
+  activeRows.forEach(function(row) {
+    var name = (row.dataset.name || '').toLowerCase();
+    var anonId = (row.dataset.anonId || '').toLowerCase();
+    row.style.display = (!q || name.indexOf(q) !== -1 || anonId.indexOf(q) !== -1) ? '' : 'none';
+  });
+  // Filter inactive patients table
+  var inactiveRows = document.querySelectorAll('#inactivePatientsTable tbody tr.patient-row');
+  inactiveRows.forEach(function(row) {
+    var name = (row.dataset.name || '').toLowerCase();
+    var anonId = (row.dataset.anonId || '').toLowerCase();
+    row.style.display = (!q || name.indexOf(q) !== -1 || anonId.indexOf(q) !== -1) ? '' : 'none';
+  });
+}
+
+// ─── Load preview ID when add modal opens ────────────────────────────────
+const PENDING_ID_KEY = 'pendingPatientId';
+
+document.getElementById('addModal').addEventListener('show.bs.modal', async () => {
+  const el      = document.getElementById('previewId');
+  const hiddenEl = document.getElementById('suggestedIdInput');
+
+  const saved = sessionStorage.getItem(PENDING_ID_KEY);
+  if (saved) {
+    el.textContent    = saved;
+    hiddenEl.value    = saved;
+    el.style.opacity  = '1';
+    document.getElementById('addNameInput').focus();
+    return;
+  }
+
+  el.style.opacity = '.4';
+  el.textContent   = '•••••';
+  hiddenEl.value   = '';
+  try {
+    const r    = await fetch('/api/generate-patient-id');
+    const data = await r.json();
+    if (data.ok) {
+      el.textContent = data.id;
+      hiddenEl.value = data.id;
+      sessionStorage.setItem(PENDING_ID_KEY, data.id);
+    } else {
+      el.textContent = '—';
+    }
+  } catch {
+    el.textContent = '—';
+  }
+  el.style.opacity = '1';
+  document.getElementById('addNameInput').focus();
+});
+
+document.getElementById('addForm').addEventListener('submit', () => {
+  sessionStorage.removeItem(PENDING_ID_KEY);
+});
+
+
+function copyUuid(uuid) {
+  navigator.clipboard.writeText(uuid).then(() => {
+    alert('מזהה הועתק: ' + uuid);
+  });
+}
+
+function openEdit(id, name, phone, notes, price, isAnonymous) {
+  document.getElementById('editForm').action = '/patients/update/' + id;
+  document.getElementById('editName').value = name;
+  document.getElementById('editPhone').value = phone;
+  document.getElementById('editNotes').value = notes;
+  document.getElementById('editPrice').value = price || 0;
+  document.getElementById('editAnonymous').checked = !!isAnonymous;
+}
+
+function openDelete(id, name) {
+  document.getElementById('deleteForm').action = '/patients/delete/' + id;
+  document.getElementById('deleteName').textContent = name;
+}
+
+// ─── Inactive section arrow rotation ─────────────────────────────────────
+const inactiveCollapse = document.getElementById('inactiveSection');
+if (inactiveCollapse) {
+  inactiveCollapse.addEventListener('show.bs.collapse', () => {
+    document.getElementById('inactiveArrow').textContent = '▼';
+  });
+  inactiveCollapse.addEventListener('hide.bs.collapse', () => {
+    document.getElementById('inactiveArrow').textContent = '▶';
+  });
+}
+
+// ─── Set patient active/inactive ─────────────────────────────────────────
+async function setPatientActive(id, name, active) {
+  const action = active ? 'החזרה לרשימת הפעילים' : 'סיום טיפול';
+  if (!confirm(`${action} עבור ${name}?`)) return;
+  try {
+    const resp = await fetch('/patients/set-active/' + id, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ active: !!active }),
+    });
+    const data = await resp.json();
+    if (data.ok) {
+      location.reload();
+    } else {
+      alert('שגיאה בעדכון סטטוס המטופל');
+    }
+  } catch (e) {
+    alert('שגיאת רשת: ' + e);
+  }
+}
+
+// ─── Right-click context menu ─────────────────────────────────────────────
+let _patientCtxMenu = null;
+
+function _ensurePatientCtxMenu() {
+  if (_patientCtxMenu) return _patientCtxMenu;
+  _patientCtxMenu = document.createElement('div');
+  Object.assign(_patientCtxMenu.style, {
+    position: 'fixed', zIndex: '9999',
+    background: '#fff',
+    border: '1px solid #dee2e6', borderRadius: '8px',
+    boxShadow: '0 4px 20px rgba(0,0,0,.15)',
+    padding: '4px 0', minWidth: '190px', display: 'none',
+  });
+  document.body.appendChild(_patientCtxMenu);
+  document.addEventListener('click', () => { _patientCtxMenu.style.display = 'none'; });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') _patientCtxMenu.style.display = 'none'; });
+  document.addEventListener('scroll', () => { _patientCtxMenu.style.display = 'none'; }, true);
+  return _patientCtxMenu;
+}
+
+function _ctxBtn(icon, label, color, onclick) {
+  const btn = document.createElement('button');
+  Object.assign(btn.style, {
+    display: 'flex', alignItems: 'center', gap: '8px',
+    width: '100%', padding: '8px 16px',
+    border: 'none', background: 'none', cursor: 'pointer',
+    fontSize: '.9rem', color: '#212529',
+  });
+  btn.innerHTML = `<span style="color:${color};font-size:1rem;">${icon}</span>${label}`;
+  btn.onmouseenter = () => btn.style.background = '#f8f9fa';
+  btn.onmouseleave = () => btn.style.background = 'none';
+  btn.addEventListener('click', e => { e.stopPropagation(); onclick(); });
+  return btn;
+}
+
+function showPatientCtx(event, id, name, isActive) {
+  event.preventDefault();
+  const menu = _ensurePatientCtxMenu();
+  menu.innerHTML = '';
+
+  if (isActive) {
+    menu.appendChild(_ctxBtn('🏁', 'סיום טיפול', '#dc3545',
+      () => { menu.style.display = 'none'; setPatientActive(id, name, 0); }
+    ));
+  } else {
+    menu.appendChild(_ctxBtn('✅', 'החזר לפעילים', '#198754',
+      () => { menu.style.display = 'none'; setPatientActive(id, name, 1); }
+    ));
+  }
+
+  const sep = document.createElement('hr');
+  sep.style.cssText = 'margin:4px 8px;border-color:#e9ecef;';
+  menu.appendChild(sep);
+
+  menu.appendChild(_ctxBtn('📂', 'כרטיס מטופל', '#6f42c1',
+    () => { menu.style.display = 'none'; window.location.href = '/patients/' + id; }
+  ));
+  menu.appendChild(_ctxBtn('📋', 'היסטוריית תורים', '#0d6efd',
+    () => {
+      menu.style.display = 'none';
+      const row = document.querySelector(`.patient-row[data-id="${id}"]`);
+      const anonId = row ? row.dataset.anonId : '';
+      const isAnon = row ? parseInt(row.dataset.isAnon || '0') : 0;
+      openHistory(anonId, name, isAnon);
+      new bootstrap.Modal(document.getElementById('historyModal')).show();
+    }
+  ));
+
+  const x = event.clientX, y = event.clientY;
+  menu.style.left = x + 'px';
+  menu.style.top  = y + 'px';
+  menu.style.display = 'block';
+
+  requestAnimationFrame(() => {
+    const r = menu.getBoundingClientRect();
+    if (r.right  > window.innerWidth)  menu.style.left = (x - r.width)  + 'px';
+    if (r.bottom > window.innerHeight) menu.style.top  = (y - r.height) + 'px';
+  });
+}
+
+// ─── History modal ────────────────────────────────────────────────────────
+const PAYMENT_LABELS = { bit: 'ביט', paybox: 'פייבוקס', cash: 'מזומן', bank: 'העברה בנקאית' };
+const STATUS_MAP     = { booked: ['bg-success', 'מאושר'], pending: ['bg-warning text-dark', 'ממתין'], cancelled: ['bg-secondary', 'בוטל'] };
+
+/** Convert 'YYYY-MM-DD' → 'D/M/YYYY' for display */
+function _fmtDate(d) {
+  if (!d || d.length < 10) return d || '';
+  const parts = d.split('-');
+  return parseInt(parts[2], 10) + '/' + parseInt(parts[1], 10) + '/' + parts[0];
+}
+
+let _historyAnonId = '';
+let _historyName   = '';
+let _historyAppts  = [];
+
+async function openHistory(anonymousId, name, isAnonymous) {
+  _historyAnonId = anonymousId;
+  _historyName   = name;
+  const titleEl = document.getElementById('historyModalTitle');
+  if (isAnonymous) {
+    titleEl.innerHTML = '📋 היסטוריית תורים – <span class="anon-blur" onclick="this.classList.toggle(\'revealed\')">' + name + '</span>';
+  } else {
+    titleEl.textContent = '📋 היסטוריית תורים – ' + name;
+  }
+  const body = document.getElementById('historyModalBody');
+  body.innerHTML = '<p class="text-center text-muted py-3">טוען...</p>';
+
+  try {
+    const resp = await fetch('/api/patients/' + anonymousId + '/appointments');
+    const data = await resp.json();
+
+    if (!data.ok || !data.appointments || data.appointments.length === 0) {
+      body.innerHTML = '<p class="text-muted text-center py-3">אין מידע בהיסטוריה עדיין.<br><small>בצע סנכרון עם Firebase כדי לטעון את כל ההיסטוריה.</small></p>';
+      return;
+    }
+    _historyAppts = data.appointments;
+    _renderHistoryTable();
+  } catch (err) {
+    body.innerHTML = '<p class="text-danger">שגיאה בטעינה: ' + err + '</p>';
+  }
+}
+
+function _renderHistoryTable() {
+  const body = document.getElementById('historyModalBody');
+  const rows = _historyAppts.map((appt, idx) => {
+    const [badgeCls, statusLabel] = STATUS_MAP[appt.status] || ['bg-light text-muted', appt.status];
+    const treated = appt.treated
+      ? '<span class="badge bg-primary">✔ בוצע</span>'
+      : '<span class="badge bg-light text-muted border">טרם התקיים</span>';
+    const payLabel = appt.paid
+      ? `<span class="badge bg-success">✔ ${PAYMENT_LABELS[appt.paymentMethod] || 'שולם'}</span>`
+      : (appt.patientMarkedPaid
+        ? '<span class="badge" style="background:#6f42c1;color:#fff;">₪? בדיקת תשלום</span>'
+        : '<span class="badge bg-light text-muted border">לא</span>');
+    return `<tr>
+      <td class="text-nowrap">${_fmtDate(appt.date)}</td>
+      <td>${appt.time}</td>
+      <td style="cursor:context-menu" oncontextmenu="showHistoryCtx(event,'status',${idx})"
+          title="קליק ימני לשינוי"><span class="badge ${badgeCls}">${statusLabel}</span></td>
+      <td style="cursor:context-menu" oncontextmenu="showHistoryCtx(event,'treated',${idx})"
+          title="קליק ימני לשינוי">${treated}</td>
+      <td style="cursor:context-menu" oncontextmenu="showHistoryCtx(event,'paid',${idx})"
+          title="קליק ימני לשינוי">${payLabel}</td>
+    </tr>`;
+  }).join('');
+
+  body.innerHTML = `
+    <table class="table table-hover table-sm align-middle">
+      <thead class="table-light">
+        <tr><th>תאריך</th><th>שעה</th><th>סטטוס</th><th>טיפול</th><th>תשלום</th></tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <p class="text-muted small text-end mt-1">${_historyAppts.length} רשומות &nbsp;|&nbsp; קליק ימני על שדה לעריכה</p>`;
+}
+
+// ─── History right-click context menu ────────────────────────────────────
+let _histCtx = null;
+function _ensureHistCtx() {
+  if (_histCtx) return _histCtx;
+  _histCtx = document.createElement('div');
+  Object.assign(_histCtx.style, {
+    position: 'fixed', zIndex: '99999',
+    background: '#fff', border: '1px solid #dee2e6', borderRadius: '8px',
+    boxShadow: '0 4px 20px rgba(0,0,0,.18)', padding: '4px 0',
+    minWidth: '180px', display: 'none',
+  });
+  document.body.appendChild(_histCtx);
+  document.addEventListener('click', () => { _histCtx.style.display = 'none'; });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') _histCtx.style.display = 'none'; });
+  document.addEventListener('scroll', () => { _histCtx.style.display = 'none'; }, true);
+  return _histCtx;
+}
+
+function _histCtxItem(icon, label, color, onclick) {
+  const btn = document.createElement('button');
+  Object.assign(btn.style, {
+    display: 'flex', alignItems: 'center', gap: '8px',
+    width: '100%', padding: '7px 14px',
+    border: 'none', background: 'none', cursor: 'pointer',
+    fontSize: '.85rem', color: '#212529', whiteSpace: 'nowrap',
+  });
+  btn.innerHTML = `<span style="color:${color};font-size:1rem;">${icon}</span>${label}`;
+  btn.onmouseenter = () => btn.style.background = '#f8f9fa';
+  btn.onmouseleave = () => btn.style.background = 'none';
+  btn.addEventListener('click', e => { e.stopPropagation(); _histCtx.style.display = 'none'; onclick(); });
+  return btn;
+}
+
+function _histCtxSep() {
+  const hr = document.createElement('hr');
+  hr.style.cssText = 'margin:3px 8px;border-color:#e9ecef;';
+  return hr;
+}
+
+function showHistoryCtx(event, field, idx) {
+  event.preventDefault();
+  event.stopPropagation();
+  const menu = _ensureHistCtx();
+  menu.innerHTML = '';
+  const appt = _historyAppts[idx];
+  const apptId = appt.id;
+  const source = appt.source || 'firebase';
+
+  if (field === 'status') {
+    const hdr = document.createElement('div');
+    hdr.style.cssText = 'padding:5px 14px;font-size:.75rem;color:#6c757d;font-weight:600;';
+    hdr.textContent = 'שינוי סטטוס';
+    menu.appendChild(hdr);
+
+    if (appt.status !== 'booked') {
+      menu.appendChild(_histCtxItem('✅', 'אשר תור', '#198754', () => _histChangeStatus(idx, 'booked')));
+    }
+    if (appt.status !== 'cancelled') {
+      menu.appendChild(_histCtxItem('❌', 'בטל תור', '#dc3545', () => _histChangeStatus(idx, 'cancelled')));
+    }
+    if (appt.status !== 'pending') {
+      menu.appendChild(_histCtxItem('⏳', 'החזר לממתין', '#ffc107', () => _histChangeStatus(idx, 'pending')));
+    }
+  }
+
+  else if (field === 'treated') {
+    const hdr = document.createElement('div');
+    hdr.style.cssText = 'padding:5px 14px;font-size:.75rem;color:#6c757d;font-weight:600;';
+    hdr.textContent = 'טיפול';
+    menu.appendChild(hdr);
+
+    if (appt.status === 'cancelled') {
+      const warn = document.createElement('div');
+      warn.style.cssText = 'padding:5px 14px;font-size:.8rem;color:#dc3545;';
+      warn.textContent = 'לא ניתן לסמן טיפול בתור שבוטל';
+      menu.appendChild(warn);
+    } else if (!appt.treated) {
+      menu.appendChild(_histCtxItem('✔', 'סמן טיפול בוצע', '#0d6efd', () => _histMark(idx, 'treated', true)));
+    } else {
+      menu.appendChild(_histCtxItem('↩', 'בטל סימון טיפול', '#6c757d', () => _histMark(idx, 'treated', false)));
+    }
+  }
+
+  else if (field === 'paid') {
+    const hdr = document.createElement('div');
+    hdr.style.cssText = 'padding:5px 14px;font-size:.75rem;color:#6c757d;font-weight:600;';
+    hdr.textContent = 'תשלום';
+    menu.appendChild(hdr);
+
+    if (appt.status === 'cancelled') {
+      const warn = document.createElement('div');
+      warn.style.cssText = 'padding:5px 14px;font-size:.8rem;color:#dc3545;';
+      warn.textContent = 'לא ניתן לסמן תשלום בתור שבוטל';
+      menu.appendChild(warn);
+    } else if (!appt.paid) {
+      if (!appt.treated) {
+        const warn = document.createElement('div');
+        warn.style.cssText = 'padding:5px 14px;font-size:.8rem;color:#dc3545;';
+        warn.textContent = 'יש לסמן טיפול בוצע קודם';
+        menu.appendChild(warn);
+      } else {
+        menu.appendChild(_histCtxItem('💳', 'ביט', '#198754', () => _histMark(idx, 'paid', true, 'bit')));
+        menu.appendChild(_histCtxItem('📱', 'פייבוקס', '#198754', () => _histMark(idx, 'paid', true, 'paybox')));
+        menu.appendChild(_histCtxItem('💵', 'מזומן', '#198754', () => _histMark(idx, 'paid', true, 'cash')));
+        menu.appendChild(_histCtxItem('🏦', 'העברה בנקאית', '#198754', () => _histMark(idx, 'paid', true, 'bank')));
+      }
+    } else {
+      menu.appendChild(_histCtxItem('↩', 'בטל סימון תשלום', '#6c757d', () => _histMark(idx, 'paid', false)));
+    }
+  }
+
+  // Position menu
+  const x = event.clientX, y = event.clientY;
+  menu.style.left = x + 'px';
+  menu.style.top  = y + 'px';
+  menu.style.display = 'block';
+  requestAnimationFrame(() => {
+    const r = menu.getBoundingClientRect();
+    if (r.right  > window.innerWidth)  menu.style.left = (x - r.width) + 'px';
+    if (r.bottom > window.innerHeight) menu.style.top  = (y - r.height) + 'px';
+  });
+}
+
+function _histChangeStatus(idx, newStatus) {
+  const appt   = _historyAppts[idx];
+  const apptId = appt.id;
+  const source = appt.source || 'firebase';
+  const oldStatus = appt.status;
+
+  // Optimistic: update immediately
+  appt.status = newStatus;
+  // Cancelled → auto-reset treated/paid
+  if (newStatus === 'cancelled') {
+    appt.treated = false;
+    appt.paid = false;
+    appt.paymentMethod = null;
+  }
+  _renderHistoryTable();
+
+  let url, fetchOpts;
+  if (newStatus === 'booked') {
+    url = `/appointments/approve/${apptId}?source=${source}`;
+    fetchOpts = { method: 'POST' };
+  } else if (newStatus === 'cancelled') {
+    url = `/appointments/reject/${apptId}?source=${source}`;
+    fetchOpts = { method: 'POST' };
+  } else {
+    url = `/appointments/mark/${apptId}?source=${source}`;
+    fetchOpts = {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ field: 'status', value: 'pending' }),
+    };
+  }
+
+  fetch(url, fetchOpts)
+    .then(r => r.json())
+    .then(data => {
+      if (!data.ok) {
+        appt.status = oldStatus;
+        _renderHistoryTable();
+        alert('שגיאה: ' + (data.error || 'לא הצליח'));
+      }
+    })
+    .catch(err => {
+      appt.status = oldStatus;
+      _renderHistoryTable();
+      alert('שגיאת רשת: ' + err);
+    });
+}
+
+function _histMark(idx, field, value, paymentMethod) {
+  const appt   = _historyAppts[idx];
+  const apptId = appt.id;
+  const source = appt.source || 'firebase';
+
+  // Save old values for revert
+  const oldField = appt[field], oldPM = appt.paymentMethod, oldPaid = appt.paid;
+
+  // Optimistic: update local state + re-render immediately
+  appt[field] = value;
+  if (field === 'paid' && value) appt.paymentMethod = paymentMethod;
+  if (field === 'paid' && !value) appt.paymentMethod = null;
+  if (field === 'treated' && !value) { appt.paid = false; appt.paymentMethod = null; }
+  _renderHistoryTable();
+
+  fetch(`/appointments/mark/${apptId}?source=${source}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ field, value, paymentMethod: paymentMethod || null }),
+  })
+    .then(r => r.json())
+    .then(data => {
+      if (!data.ok) {
+        appt[field] = oldField; appt.paymentMethod = oldPM;
+        if (field === 'treated') appt.paid = oldPaid;
+        _renderHistoryTable();
+        alert('שגיאה: ' + (data.error || 'לא הצליח'));
+      }
+    })
+    .catch(err => {
+      appt[field] = oldField; appt.paymentMethod = oldPM;
+      if (field === 'treated') appt.paid = oldPaid;
+      _renderHistoryTable();
+      alert('שגיאת רשת: ' + err);
+    });
+}
+</script>
+{% endblock %}
