@@ -2,10 +2,10 @@
 :: Change to the directory of this bat file (critical for relative paths)
 cd /d "%~dp0"
 chcp 65001 > nul
-title AnonimousQ - Doctor App
+title ClinicTor - Doctor App
 
 echo =========================================
-echo   AnonimousQ v2.0.0 - מערכת תורים
+echo   ClinicTor v2.0.0 - מערכת תורים
 echo =========================================
 echo.
 

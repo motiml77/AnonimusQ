@@ -111,14 +111,14 @@
         <div class="col">
           <label class="form-label fw-semibold">&#128279; קישור תשלום ביט</label>
           <input type="url" name="bit_link" class="form-control ltr" dir="ltr"
-                 placeholder="https://www.bitpay.co.il/..."
+                 placeholder="קישור אישי"
                  value="{{ payment_settings.bitLink or '' }}" />
           <div class="form-text">קישור ביט – הלחיצה באתר המטופל תפתח קישור זה.</div>
         </div>
         <div class="col">
           <label class="form-label fw-semibold">&#128279; קישור תשלום פייבוקס</label>
           <input type="url" name="paybox_link" class="form-control ltr" dir="ltr"
-                 placeholder="https://payboxapp.page.link/..."
+                 placeholder="קישור אישי"
                  value="{{ payment_settings.payboxLink or '' }}" />
           <div class="form-text">קישור פייבוקס – הלחיצה באתר המטופל תפתח קישור זה.</div>
         </div>
@@ -233,19 +233,41 @@
   </div>
 </div>
 
-<!-- ============ Section 6: App Version & Updates ============ -->
+<!-- ============ Section 6: License / Subscription ============ -->
+<div class="card mb-4 shadow-sm" id="licenseCard">
+  <div class="card-header fw-bold bg-light">&#128272; רישיון</div>
+  <div class="card-body" id="licenseBody">
+    <div class="text-muted">טוען מידע רישיון...</div>
+  </div>
+</div>
+
+<!-- ============ Section 7: App Version & Updates ============ -->
 <div class="card mb-4 shadow-sm border-secondary">
   <div class="card-header fw-bold bg-light">&#9881; גרסה ועדכונים</div>
   <div class="card-body">
     <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
       <div>
+        <span id="licenseBadgeArea"></span>
         <span class="fw-semibold">גרסה נוכחית:</span>
         <span id="appVersionLabel" class="badge bg-secondary fs-6">טוען...</span>
         <span id="updateStatus" class="text-muted small me-2"></span>
       </div>
-      <button id="checkUpdateBtn" class="btn btn-outline-primary btn-sm" onclick="checkForUpdates()">
-        &#128269; בדוק עדכונים
-      </button>
+      <div class="d-flex gap-2">
+        <button id="checkUpdateBtn" class="btn btn-outline-primary btn-sm" onclick="checkForUpdates()">
+          &#128269; בדוק עדכונים
+        </button>
+        <button id="installUpdateBtn" class="btn btn-success btn-sm d-none" onclick="installUpdate()">
+          <span id="installBtnLabel">&#11015; עדכן עכשיו</span>
+          <span id="installBtnLoading" class="d-none">
+            <span class="spinner-border spinner-border-sm me-1"></span>מוריד...
+          </span>
+        </button>
+      </div>
+    </div>
+    <hr class="my-3">
+    <div class="d-flex align-items-center justify-content-between">
+      <span class="text-muted small">אם נתקלת בתקלה, שלח את קובץ הלוגים למפתח</span>
+      <a href="/api/logs" class="btn btn-outline-secondary btn-sm">&#128203; הורד לוגים</a>
     </div>
   </div>
 </div>
@@ -253,6 +275,61 @@
 
 {% block scripts %}
 <script>
+// License info
+fetch('/api/license-info').then(function(r) { return r.json(); }).then(function(data) {
+  var body = document.getElementById('licenseBody');
+  var card = document.getElementById('licenseCard');
+
+  if (data.status === 'licensed') {
+    // Hide the license card entirely
+    card.classList.add('d-none');
+    // Show "מנוי" badge next to version
+    document.getElementById('licenseBadgeArea').innerHTML =
+      '<span class="badge bg-success fs-6 me-2">&#9989; מנוי</span>';
+    return;
+  }
+
+  if (data.status === 'trial') {
+    var pct = Math.round((data.daysUsed / data.trialDays) * 100);
+    var barColor = pct < 50 ? '#198754' : pct < 80 ? '#ffc107' : '#dc3545';
+    var textColor = pct < 80 ? '' : 'text-danger fw-bold';
+
+    body.innerHTML =
+      '<div class="mb-2">' +
+      '  <span class="fw-semibold">&#9200; תקופת ניסיון</span>' +
+      '  <span class="float-start ' + textColor + '">' + data.daysRemaining + ' ימים נותרו</span>' +
+      '</div>' +
+      '<div class="progress mb-2" style="height:24px; border-radius:12px; background:#e9ecef;">' +
+      '  <div class="progress-bar" role="progressbar"' +
+      '       style="width:' + pct + '%; background:' + barColor + '; border-radius:12px;' +
+      '              font-size:0.85rem; font-weight:600; transition:width 0.6s ease;"' +
+      '       aria-valuenow="' + pct + '" aria-valuemin="0" aria-valuemax="100">' +
+      '    ' + data.daysUsed + ' / ' + data.trialDays + ' ימים' +
+      '  </div>' +
+      '</div>' +
+      '<div class="text-muted small">' +
+      '  הניסיון מסתיים ב-' + data.trialEndDate +
+      '  &nbsp;|&nbsp; לרכישת מנוי צור קשר עם המפתח' +
+      '</div>';
+    return;
+  }
+
+  if (data.status === 'expired') {
+    body.innerHTML =
+      '<div class="alert alert-danger mb-0">' +
+      '  <strong>&#9888; תקופת הניסיון הסתיימה</strong><br>' +
+      '  צור קשר עם המפתח לרכישת מנוי.' +
+      '</div>';
+    return;
+  }
+
+  // unknown
+  body.innerHTML = '<div class="text-muted small">לא ניתן לטעון מידע רישיון</div>';
+}).catch(function() {
+  document.getElementById('licenseBody').innerHTML =
+    '<div class="text-muted small">לא ניתן לטעון מידע רישיון</div>';
+});
+
 function copyPatientLink() {
   const el = document.getElementById('patient-link');
   el.select();
@@ -281,15 +358,50 @@ function checkForUpdates() {
     } else if (data.available) {
       status.textContent = 'גרסה ' + data.version + ' זמינה!';
       status.className = 'text-primary fw-bold small me-2';
+      document.getElementById('installUpdateBtn').classList.remove('d-none');
     } else {
       status.textContent = data.message || 'הגרסה מעודכנת';
       status.className = 'text-success small me-2';
+      document.getElementById('installUpdateBtn').classList.add('d-none');
     }
   }).catch(() => {
     btn.disabled = false;
     btn.innerHTML = '&#128269; בדוק עדכונים';
     status.textContent = 'שגיאת חיבור';
     status.className = 'text-danger small me-2';
+  });
+}
+
+// Also check on page load
+fetch('/api/update-check').then(r => r.json()).then(data => {
+  if (data.available) {
+    document.getElementById('updateStatus').textContent = 'גרסה ' + data.version + ' זמינה!';
+    document.getElementById('updateStatus').className = 'text-primary fw-bold small me-2';
+    document.getElementById('installUpdateBtn').classList.remove('d-none');
+  }
+}).catch(() => {});
+
+// Install update
+function installUpdate() {
+  if (!confirm('העדכון יגבה את הנתונים, יתקין את הגרסה החדשה ויפעיל מחדש.\nלהמשיך?')) return;
+  var btn = document.getElementById('installUpdateBtn');
+  btn.disabled = true;
+  document.getElementById('installBtnLabel').classList.add('d-none');
+  document.getElementById('installBtnLoading').classList.remove('d-none');
+  fetch('/update/install', {method: 'POST'}).then(r => r.json()).then(data => {
+    if (data.ok) {
+      document.getElementById('installBtnLoading').innerHTML =
+        '<span class="spinner-border spinner-border-sm me-1"></span>מתקין... התוכנה תיפתח מחדש';
+    } else {
+      alert(data.error || 'שגיאה בעדכון');
+      btn.disabled = false;
+      document.getElementById('installBtnLabel').classList.remove('d-none');
+      document.getElementById('installBtnLoading').classList.add('d-none');
+    }
+  }).catch(() => {
+    btn.disabled = false;
+    document.getElementById('installBtnLabel').classList.remove('d-none');
+    document.getElementById('installBtnLoading').classList.add('d-none');
   });
 }
 </script>

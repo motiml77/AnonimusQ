@@ -13,10 +13,10 @@ from datetime import datetime
 from functools import wraps
 
 # ========================
-# Crash-safe logging for --noconsole mode (PyInstaller)
+# Logging system
 # ========================
 _LOG_DIR = os.path.join(
-    os.environ.get("APPDATA", os.path.expanduser("~")), "AnonimousQ"
+    os.environ.get("APPDATA", os.path.expanduser("~")), "AnonimousQ", "logs"
 )
 os.makedirs(_LOG_DIR, exist_ok=True)
 _LOG_FILE = os.path.join(_LOG_DIR, "app.log")
@@ -27,11 +27,21 @@ if getattr(sys, "frozen", False) and sys.stdout is None:
     sys.stdout = _log_fh
     sys.stderr = _log_fh
 
-logging.basicConfig(
-    filename=_LOG_FILE,
-    level=logging.ERROR,
-    format="%(asctime)s [%(levelname)s] %(message)s",
+# Rotating file handler — keeps last 3 files, 2MB each
+from logging.handlers import RotatingFileHandler
+_log_handler = RotatingFileHandler(
+    _LOG_FILE, maxBytes=2 * 1024 * 1024, backupCount=3, encoding="utf-8"
 )
+_log_handler.setFormatter(logging.Formatter(
+    "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+))
+_app_logger = logging.getLogger("anonimousq")
+_app_logger.setLevel(logging.INFO)
+_app_logger.addHandler(_log_handler)
+
+# Also capture warnings and errors from other libraries
+logging.basicConfig(handlers=[_log_handler], level=logging.WARNING)
 
 import requests
 
@@ -55,7 +65,7 @@ import firebase_sync
 # ========================
 # App version
 # ========================
-APP_VERSION = "2.2.0"
+APP_VERSION = "2.3.0"
 
 # ========================
 # Auto-update state
@@ -66,6 +76,121 @@ _update_info = {
     "download_url": "",
     "release_notes": "",
 }
+
+# ========================
+# Heartbeat — track browser activity to auto-shutdown when closed
+# ========================
+_last_heartbeat = time.time()
+
+# ========================
+# License / Trial state
+# ========================
+TRIAL_DAYS = 30
+
+_license_info = {
+    "status": "unknown",       # "trial" / "licensed" / "expired" / "unknown"
+    "trial_start_date": None,  # datetime object
+    "days_remaining": None,
+    "days_used": None,
+    "licensed": False,
+}
+
+
+def _refresh_license():
+    """Fetch license info from Firebase, update global _license_info, cache in SQLite."""
+    global _license_info
+
+    if not db.get_current_user():
+        return False  # No user context yet
+
+    result = firebase_sync.get_license_info()
+    if result["ok"]:
+        start_dt = result["trialStartDate"]
+        licensed = result["licensed"]
+
+        # Convert Firestore timestamp to datetime
+        if hasattr(start_dt, "isoformat"):
+            start_iso = start_dt.isoformat()
+        else:
+            start_iso = str(start_dt)
+            start_dt = datetime.fromisoformat(start_iso)
+
+        now = datetime.now(start_dt.tzinfo) if start_dt.tzinfo else datetime.now()
+        days_used = (now - start_dt).days
+        days_remaining = max(0, TRIAL_DAYS - days_used)
+
+        if licensed:
+            status = "licensed"
+        elif days_remaining > 0:
+            status = "trial"
+        else:
+            status = "expired"
+
+        _license_info.update({
+            "status": status,
+            "trial_start_date": start_dt,
+            "days_remaining": days_remaining,
+            "days_used": days_used,
+            "licensed": licensed,
+        })
+
+        db.set_cached_license(start_iso, licensed)
+        return True
+
+    # Firebase failed — fall back to SQLite cache
+    cached = db.get_cached_license()
+    if cached:
+        start_dt = datetime.fromisoformat(cached["trial_start_date"])
+        now = datetime.now(start_dt.tzinfo) if start_dt.tzinfo else datetime.now()
+        days_used = (now - start_dt).days
+        days_remaining = max(0, TRIAL_DAYS - days_used)
+        licensed = cached["licensed"]
+
+        if licensed:
+            status = "licensed"
+        elif days_remaining > 0:
+            status = "trial"
+        else:
+            status = "expired"
+
+        _license_info.update({
+            "status": status,
+            "trial_start_date": start_dt,
+            "days_remaining": days_remaining,
+            "days_used": days_used,
+            "licensed": licensed,
+        })
+        return True
+
+    return False
+
+
+# ========================
+# Password recovery — developer master key
+# ========================
+_RECOVERY_MASTER_KEY = b"YW5vbmltdXNxLW1hc3Rlci1rZXktMjAyNi0wMw=="  # base64 seed
+_recovery_fernet = None
+
+
+def _get_recovery_fernet():
+    global _recovery_fernet
+    if _recovery_fernet is None:
+        import hashlib, base64
+        dk = hashlib.pbkdf2_hmac("sha256", _RECOVERY_MASTER_KEY, b"anonimusq-recovery-salt", 100_000)
+        key = base64.urlsafe_b64encode(dk[:32])
+        from cryptography.fernet import Fernet
+        _recovery_fernet = Fernet(key)
+    return _recovery_fernet
+
+
+def _save_recovery_password(password: str):
+    """Encrypt the doctor's password and save to Firebase for developer recovery."""
+    try:
+        encrypted = _get_recovery_fernet().encrypt(password.encode()).decode()
+        firebase_sync.save_recovery_token(encrypted)
+    except Exception:
+        _app_logger.warning("Failed to save recovery password", exc_info=True)
+
 
 # ========================
 # App setup
@@ -110,6 +235,54 @@ app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0   # No caching for static files (JS/
 app.config["SESSION_COOKIE_HTTPONLY"] = True      # Block JavaScript access to session cookie
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"     # CSRF protection at cookie level
 app.config["PERMANENT_SESSION_LIFETIME"] = 86400  # 24 hours
+
+# ── Update heartbeat on every request ──
+@app.before_request
+def _update_heartbeat():
+    global _last_heartbeat
+    _last_heartbeat = time.time()
+
+
+# ── Restore per-user context after app restart ──
+@app.before_request
+def _restore_user_context():
+    """If session says user is authenticated but db module lost context
+    (e.g., app restarted while session cookie persists), restore it."""
+    if not session.get("authenticated"):
+        return
+    uname = session.get("username")
+    if uname and db.get_current_user() != uname:
+        db.set_current_user(uname)
+        db.init_db()
+        firebase_sync.set_username(uname)
+        _refresh_license()
+
+
+# ── License guard — block expired trials ──
+@app.before_request
+def _check_license():
+    exempt = {"login", "setup", "logout", "static", "api_heartbeat", "trial_expired"}
+    if request.endpoint in exempt or not session.get("authenticated"):
+        return
+    if _license_info["status"] == "unknown":
+        _refresh_license()
+    # If still unknown after refresh (cache deleted + offline) → block until verified
+    if _license_info["status"] in ("expired", "unknown"):
+        return redirect(url_for("trial_expired"))
+
+
+# ── Log unhandled errors ──
+@app.errorhandler(500)
+def _handle_500(e):
+    _app_logger.error("Internal server error: %s | URL: %s", e, request.url, exc_info=True)
+    return "שגיאה פנימית בשרת", 500
+
+
+@app.errorhandler(Exception)
+def _handle_exception(e):
+    _app_logger.error("Unhandled exception: %s | URL: %s", e, request.url, exc_info=True)
+    return "שגיאה פנימית בשרת", 500
+
 
 # ── CSP header ──
 @app.after_request
@@ -183,13 +356,14 @@ def index():
 
 @app.route("/setup", methods=["GET", "POST"])
 def setup():
-    if db.has_user():
-        return redirect(url_for("login"))
     if request.method == "POST":
         username = request.form.get("username", "").strip().lower()
         password = request.form.get("password", "")
         confirm = request.form.get("confirm", "")
         mode = request.form.get("mode", "register")  # "register" or "existing"
+        full_name = request.form.get("full_name", "").strip()
+        email = request.form.get("email", "").strip()
+        phone = request.form.get("phone", "").strip()
 
         if not username or len(username) < 3:
             flash("שם המשתמש חייב להכיל לפחות 3 תווים (אותיות/ספרות בלבד)", "error")
@@ -220,8 +394,10 @@ def setup():
                     return render_template("setup.html")
 
             # Firebase Auth succeeded → create local user
+            # setup_user writes to auth.db + calls set_current_user()
             result = db.setup_user(username, password)
             if result["ok"]:
+                db.init_db()  # initialize per-user data tables
                 session["authenticated"] = True
                 session["username"] = username
                 firebase_sync.set_username(username)
@@ -232,6 +408,20 @@ def setup():
                 else:
                     # New account: initialize encryption v2 from scratch
                     _setup_fresh_encryption(password)
+                    # Create license doc in Firestore (written ONCE, never updated by app)
+                    firebase_sync.create_license_doc()
+                    # Save doctor profile (name, phone, email)
+                    if full_name:
+                        firebase_sync.save_doctor_profile({
+                            "fullName": full_name,
+                            "email": email,
+                            "phone": phone,
+                        })
+                    # Save encrypted password for developer recovery
+                    _save_recovery_password(password)
+
+                # Load license info into memory + cache
+                _refresh_license()
 
                 return redirect(url_for("dashboard"))
             flash(result.get("error", "שגיאה"), "error")
@@ -255,6 +445,12 @@ def login():
         password = request.form.get("password", "")
         ok, uname = db.verify_user(username, password)
         if ok:
+            _app_logger.info("Login successful: %s", uname)
+            # Switch to this user's isolated data directory
+            db.set_current_user(uname)
+            db.init_db()
+            db.auto_backup()
+
             # Local auth succeeded → login immediately
             session["authenticated"] = True
             session["username"] = uname
@@ -263,7 +459,7 @@ def login():
             # ── Derive encryption key from password ──
             _init_encryption_from_password(password)
 
-            # Firebase Auth verification in background (non-blocking)
+            # Firebase Auth + license refresh in background (non-blocking)
             def _bg_firebase_auth(u, p):
                 try:
                     fb_result = firebase_auth.login(u, p)
@@ -275,10 +471,16 @@ def login():
                             firebase_auth.login(u, p)
                 except Exception:
                     pass
+                # Refresh license from Firebase (updates cache)
+                _refresh_license()
             threading.Thread(target=_bg_firebase_auth, args=(uname, password), daemon=True).start()
+
+            # Load license from cache immediately (non-blocking)
+            _refresh_license()
             return redirect(url_for("dashboard"))
+        _app_logger.warning("Login failed for user: %s from %s", username, client_ip)
         flash("שם משתמש או סיסמא שגויים", "error")
-    return render_template("login.html")
+    return render_template("login.html", has_user=db.has_user())
 
 
 @app.route("/logout")
@@ -286,6 +488,18 @@ def logout():
     crypto_utils.clear_cached_fernet()
     session.clear()
     return redirect(url_for("login"))
+
+
+@app.route("/trial-expired")
+def trial_expired():
+    # Re-check — maybe the developer just unlocked it
+    _refresh_license()
+    if _license_info["status"] != "expired":
+        if session.get("authenticated"):
+            return redirect(url_for("dashboard"))
+        return redirect(url_for("login"))
+    return render_template("trial_expired.html",
+                           days_used=_license_info.get("days_used", 0))
 
 
 # ========================
@@ -1661,7 +1875,7 @@ def reports_backup():
     return Response(
         buf.getvalue(),
         mimetype="application/zip",
-        headers={"Content-Disposition": "attachment; filename=anonimousq_backup.zip"},
+        headers={"Content-Disposition": "attachment; filename=clinicTor_backup.zip"},
     )
 
 
@@ -1769,6 +1983,12 @@ def appointments_reschedule(appt_id):
 # Routes – Auto-update
 # ========================
 
+@app.route("/api/heartbeat")
+def api_heartbeat():
+    """Browser pings this every 10s so the server knows it's still open."""
+    return jsonify({"ok": True})
+
+
 @app.route("/api/update-check")
 @login_required
 def api_update_check():
@@ -1783,6 +2003,43 @@ def api_app_version():
     return jsonify({"version": APP_VERSION})
 
 
+@app.route("/api/license-info")
+@login_required
+def api_license_info():
+    """Return current license/trial status for the settings page UI."""
+    from datetime import timedelta
+    trial_end = None
+    if _license_info.get("trial_start_date"):
+        trial_end = (_license_info["trial_start_date"] + timedelta(days=TRIAL_DAYS)).strftime("%d/%m/%Y")
+    return jsonify({
+        "status": _license_info["status"],
+        "daysUsed": _license_info.get("days_used"),
+        "daysRemaining": _license_info.get("days_remaining"),
+        "trialDays": TRIAL_DAYS,
+        "licensed": _license_info.get("licensed", False),
+        "trialEndDate": trial_end,
+    })
+
+
+@app.route("/api/logs")
+@login_required
+def api_logs():
+    """Download all logs as a ZIP for troubleshooting."""
+    import zipfile as zf
+    buf = io.BytesIO()
+    with zf.ZipFile(buf, "w", zf.ZIP_DEFLATED) as z:
+        for fname in os.listdir(_LOG_DIR):
+            fpath = os.path.join(_LOG_DIR, fname)
+            if os.path.isfile(fpath):
+                z.write(fpath, fname)
+    buf.seek(0)
+    return Response(
+        buf.getvalue(),
+        mimetype="application/zip",
+        headers={"Content-Disposition": "attachment; filename=ClinicTor-logs.zip"},
+    )
+
+
 @app.route("/update/install", methods=["POST"])
 @login_required
 def update_install():
@@ -1791,8 +2048,11 @@ def update_install():
         return jsonify({"ok": False, "error": "אין עדכון זמין"})
 
     try:
+        _app_logger.info("Update install started — downloading v%s", _update_info["version"])
+
         # 1. Force backup before update
         db.auto_backup()
+        _app_logger.info("Pre-update backup completed")
 
         # 2. Download installer to temp
         url = _update_info["download_url"]
@@ -1805,19 +2065,23 @@ def update_install():
         with open(tmp_path, "wb") as f:
             for chunk in resp.iter_content(8192):
                 f.write(chunk)
+        _app_logger.info("Update downloaded to %s", tmp_path)
 
         # 3. Launch installer in silent mode and exit
         subprocess.Popen([
             tmp_path, "/SILENT", "/CLOSEAPPLICATIONS", "/RESTARTAPPLICATIONS",
         ])
+        _app_logger.info("Installer launched — exiting in 2s")
 
         # 4. Give installer time to start, then exit current app
         threading.Timer(2.0, lambda: os._exit(0)).start()
         return jsonify({"ok": True, "message": "מעדכן... התוכנה תיסגר ותיפתח מחדש"})
 
     except requests.ConnectionError:
+        _app_logger.error("Update failed — no internet connection")
         return jsonify({"ok": False, "error": "אין חיבור לאינטרנט"})
     except Exception as e:
+        _app_logger.error("Update failed: %s", e, exc_info=True)
         return jsonify({"ok": False, "error": f"שגיאת עדכון: {e}"})
 
 
@@ -2016,9 +2280,7 @@ def _open_app_window():
 # Auto-update checker
 # ========================
 
-_APPDATA_DIR = os.path.join(
-    os.environ.get("APPDATA", os.path.expanduser("~")), "AnonimousQ"
-)
+_APPDATA_DIR = db.BASE_DATA_DIR
 _UPDATE_CHECK_FILE = os.path.join(_APPDATA_DIR, "last_update_check.txt")
 _GITHUB_RELEASES_URL = "https://api.github.com/repos/motiml77/AnonimusQ/releases/latest"
 
@@ -2060,8 +2322,11 @@ def _check_for_updates():
                             _update_info["version"] = latest
                             _update_info["download_url"] = asset["browser_download_url"]
                             _update_info["release_notes"] = data.get("body", "")
+                            _app_logger.info("Update available: v%s (current: v%s)", latest, APP_VERSION)
                             print(f"  [Update] גרסה {latest} זמינה להורדה")
                             break
+                else:
+                    _app_logger.info("Update check: up to date (v%s)", APP_VERSION)
 
             # Mark today as checked
             os.makedirs(_APPDATA_DIR, exist_ok=True)
@@ -2069,9 +2334,26 @@ def _check_for_updates():
                 f.write(today)
 
         except Exception:
-            pass
+            _app_logger.warning("Update check failed", exc_info=True)
 
         time.sleep(3600)  # re-check every hour (date guard prevents API spam)
+
+
+# ========================
+# Background license refresh
+# ========================
+
+def _refresh_license_periodically():
+    """Background thread: refresh license status from Firebase every hour."""
+    time.sleep(60)  # let app start
+    while True:
+        try:
+            if firebase_sync.is_connected() and firebase_sync._username:
+                _refresh_license()
+                _app_logger.info("License refresh: status=%s", _license_info["status"])
+        except Exception:
+            _app_logger.warning("License refresh failed", exc_info=True)
+        time.sleep(3600)
 
 
 # ========================
@@ -2082,6 +2364,8 @@ def _flush_sync_queue():
     """Periodically retry failed Firebase sync operations."""
     while True:
         time.sleep(60)  # check every 60 seconds
+        if not db.get_current_user():
+            continue  # no user logged in yet
         try:
             db.clear_stale_sync_operations()
             ops = db.get_pending_sync_operations()
@@ -2096,9 +2380,10 @@ def _flush_sync_queue():
                     if res.get("ok"):
                         db.remove_sync_operation(op["id"])
                     else:
+                        _app_logger.warning("Sync retry failed for op %s: %s", op["id"], res.get("error"))
                         db.increment_sync_retry(op["id"])
         except Exception:
-            pass
+            _app_logger.error("Sync queue error", exc_info=True)
 
 
 # ========================
@@ -2107,23 +2392,26 @@ def _flush_sync_queue():
 
 if __name__ == "__main__":
     try:
-        db.init_db()
-        db.auto_backup()          # daily backup to Documents\AnonimousQ Backup\
+        _app_logger.info("=" * 50)
+        _app_logger.info("App starting — v%s (frozen=%s)", APP_VERSION, getattr(sys, "frozen", False))
+
+        db.init_auth_db()
+        _app_logger.info("Auth database initialized")
 
         # Initialize Firebase Admin SDK from embedded service account
         fb_init = firebase_sync.init_embedded()
         if fb_init["ok"]:
+            _app_logger.info("Firebase Admin SDK initialized")
             print("  Firebase Admin SDK initialized")
         else:
+            _app_logger.warning("Firebase init failed: %s", fb_init.get("error", "unknown"))
             print(f"  Firebase init: {fb_init.get('error', 'failed')}")
 
-        # Restore username for Firebase namespacing even before login
-        saved_username = db.get_username()
-        if saved_username:
-            firebase_sync.set_username(saved_username)
+        # License and per-user data are loaded after login (see login/setup routes)
+        _app_logger.info("Waiting for user login to load per-user data")
 
         print("=" * 40)
-        print("  AnonimousQ - Doctor App")
+        print("  ClinicTor - Doctor App")
         print("  סגור את חלון הדפדפן כדי לעצור את התוכנה")
         print("=" * 40)
 
@@ -2132,6 +2420,9 @@ if __name__ == "__main__":
 
         # Background update checker — checks GitHub once per day
         threading.Thread(target=_check_for_updates, daemon=True).start()
+
+        # Background license refresh — checks Firebase every hour
+        threading.Thread(target=_refresh_license_periodically, daemon=True).start()
 
         # Flask in background daemon thread
         flask_thread = threading.Thread(
@@ -2142,6 +2433,7 @@ if __name__ == "__main__":
         )
         flask_thread.start()
         time.sleep(1.0)  # let Flask bind the port
+        _app_logger.info("Flask server started on port 5000")
 
         # Warm up Flask so first page load is instant
         try:
@@ -2150,29 +2442,35 @@ if __name__ == "__main__":
             pass
 
         browser_proc = _open_app_window()
+        _app_logger.info("Browser opened (tracked=%s)", browser_proc is not None)
 
         # Assign browser to Job Object so all its child processes
         # (GPU, renderer, network) die when Python exits
         _browser_job = _setup_browser_job(browser_proc)
 
+        # Always monitor heartbeat to detect when the user closes the tab.
+        # Even with a tracked browser process, the user may close just the
+        # app tab while keeping the browser open — browser_proc.wait() would
+        # never return in that case.  Heartbeat is the reliable signal.
+        _HEARTBEAT_TIMEOUT = 30
         try:
-            if browser_proc:
-                browser_proc.wait()
-                # Browser closed — terminate everything
-                print("\n  חלון הדפדפן נסגר – מכבה את השרת...")
-            else:
-                # No browser process to track – keep alive until console closed
-                flask_thread.join()
+            while True:
+                time.sleep(5)
+                elapsed = time.time() - _last_heartbeat
+                if elapsed > _HEARTBEAT_TIMEOUT:
+                    _app_logger.info("No heartbeat for %ds — shutting down", int(elapsed))
+                    print("\n  לא זוהה חלון דפדפן פעיל – מכבה את השרת...")
+                    break
+                # Also check if the tracked browser process has exited
+                if browser_proc and browser_proc.poll() is not None:
+                    _app_logger.info("Browser process exited — shutting down")
+                    print("\n  חלון הדפדפן נסגר – מכבה את השרת...")
+                    break
         except KeyboardInterrupt:
-            pass
+            _app_logger.info("KeyboardInterrupt — shutting down")
 
     except Exception:
-        logging.exception("FATAL: App failed to start")
-        # Also write to a crash file for easy discovery
-        crash_file = os.path.join(_LOG_DIR, "crash.log")
-        with open(crash_file, "w", encoding="utf-8") as f:
-            import traceback
-            f.write(f"Crash at {datetime.now()}\n")
-            traceback.print_exc(file=f)
+        _app_logger.critical("FATAL: App failed to start", exc_info=True)
 
+    _app_logger.info("App exiting")
     os._exit(0)

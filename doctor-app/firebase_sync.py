@@ -707,6 +707,82 @@ def set_password_change_flag(in_progress: bool) -> dict:
 
 
 # ========================
+# Doctor Profile & Password Recovery
+# ========================
+
+def save_doctor_profile(profile: dict) -> dict:
+    """Save doctor profile (name, phone, email) to Firestore.
+    Path: /doctors/{username}/settings/profile
+    Also ensures the parent /doctors/{username} document exists.
+    """
+    if not is_connected():
+        return {"ok": False, "error": "Firebase not connected"}
+    try:
+        # Ensure parent document exists (needed for list queries)
+        _doctor().set({"registered": True}, merge=True)
+        _doctor().collection("settings").document("profile").set(profile)
+        return {"ok": True}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+def save_recovery_token(encrypted_password: str) -> dict:
+    """Save encrypted password for developer recovery.
+    Path: /doctors/{username}/settings/recovery
+    """
+    if not is_connected():
+        return {"ok": False, "error": "Firebase not connected"}
+    try:
+        _doctor().collection("settings").document("recovery").set({
+            "encryptedPassword": encrypted_password,
+        })
+        return {"ok": True}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+# ========================
+# License / Trial
+# ========================
+
+def create_license_doc() -> dict:
+    """Create the license document for a new doctor. Written ONCE during registration.
+    Fields: trialStartDate (server timestamp), licensed (false).
+    Only the developer can change 'licensed' to true via Firebase Console.
+    """
+    if not is_connected():
+        return {"ok": False, "error": "Firebase not connected"}
+    try:
+        _doctor().collection("settings").document("license").set({
+            "trialStartDate": firestore.SERVER_TIMESTAMP,
+            "licensed": False,
+        })
+        return {"ok": True}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+def get_license_info() -> dict:
+    """Read the license document from Firestore.
+    Returns {ok, trialStartDate (datetime), licensed (bool)}.
+    """
+    if not is_connected():
+        return {"ok": False, "error": "Firebase not connected"}
+    try:
+        doc = _doctor().collection("settings").document("license").get()
+        if not doc.exists:
+            return {"ok": False, "error": "no license doc"}
+        data = doc.to_dict()
+        return {
+            "ok": True,
+            "trialStartDate": data.get("trialStartDate"),
+            "licensed": data.get("licensed", False),
+        }
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+# ========================
 # Encrypted Patient Data (v2)
 # ========================
 

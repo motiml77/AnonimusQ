@@ -203,7 +203,7 @@
   <div class="setup-card">
     <!-- Logo -->
     <div class="card-logo">
-      <img src="{{ url_for('static', filename='img/clinicTor.png') }}" alt="ClinicTor" />
+      <img src="{{ url_for('static', filename='img/clinicTor-transparent.png') }}" alt="ClinicTor" />
     </div>
 
     <h1>הגדרת חשבון</h1>
@@ -250,6 +250,18 @@
                  placeholder="לדוגמה: dr-cohen" required autofocus
                  pattern="[a-zA-Z0-9_\-]+" minlength="3" maxlength="40" />
           <div class="setup-hint">ניתן להשתמש באותיות לטיניות, ספרות, מקף וקו-תחתי</div>
+
+          <label class="setup-label">שם מלא <span class="required">*</span></label>
+          <input type="text" name="full_name" class="setup-input"
+                 placeholder="לדוגמה: ד״ר ישראל כהן" required />
+
+          <label class="setup-label">מייל <span class="required">*</span></label>
+          <input type="email" name="email" class="setup-input" style="direction:ltr;text-align:left;"
+                 placeholder="doctor@example.com" required />
+
+          <label class="setup-label">טלפון <span class="required">*</span></label>
+          <input type="tel" name="phone" class="setup-input" style="direction:ltr;text-align:left;"
+                 placeholder="050-1234567" required />
 
           <label class="setup-label">סיסמא <span class="required">*</span></label>
           <input type="password" name="password" class="setup-input"

@@ -18,13 +18,19 @@ else:
 
 # ── Persistent data directory ─────────────────────────────────────────────
 # Stored in %APPDATA%\AnonimousQ so data survives app folder deletion/update.
-_APPDATA      = os.environ.get("APPDATA", os.path.expanduser("~"))
-DATA_DIR      = os.path.join(_APPDATA, "AnonimousQ")
-_OLD_DATA_DIR = os.path.join(_BASE_DIR, "data")   # legacy location
+_APPDATA       = os.environ.get("APPDATA", os.path.expanduser("~"))
+BASE_DATA_DIR  = os.path.join(_APPDATA, "AnonimousQ")
+_OLD_DATA_DIR  = os.path.join(_BASE_DIR, "data")   # legacy location
 
-DB_PATH       = os.path.join(DATA_DIR, "anonimousq.db")
-SETTINGS_PATH = os.path.join(DATA_DIR, "settings.json")
-PAYMENT_PATH  = os.path.join(DATA_DIR, "payment_settings.json")
+# Shared auth database (all registered doctors)
+AUTH_DB_PATH   = os.path.join(BASE_DATA_DIR, "auth.db")
+
+# ── Per-user paths (set by set_current_user after login/setup) ───────────
+_current_user  = None
+DATA_DIR       = BASE_DATA_DIR            # updated by set_current_user
+DB_PATH        = os.path.join(DATA_DIR, "anonimousq.db")
+SETTINGS_PATH  = os.path.join(DATA_DIR, "settings.json")
+PAYMENT_PATH   = os.path.join(DATA_DIR, "payment_settings.json")
 
 # ── Backup directory ──────────────────────────────────────────────────────
 _DOCS_DIR  = os.path.join(os.path.expanduser("~"), "Documents")
@@ -32,41 +38,147 @@ BACKUP_DIR = os.path.join(_DOCS_DIR, "AnonimousQ Backup")
 
 
 def _migrate_old_data():
-    """If data exists only in the old app folder, copy it to DATA_DIR."""
-    os.makedirs(DATA_DIR, exist_ok=True)
+    """If data exists only in the old app folder, copy it to BASE_DATA_DIR."""
+    os.makedirs(BASE_DATA_DIR, exist_ok=True)
     for fname in ("anonimousq.db", "settings.json",
                   "payment_settings.json", "firebase-service-account.json",
                   "secret.key"):
         old_path = os.path.join(_OLD_DATA_DIR, fname)
-        new_path = os.path.join(DATA_DIR, fname)
+        new_path = os.path.join(BASE_DATA_DIR, fname)
         if os.path.exists(old_path) and not os.path.exists(new_path):
             shutil.copy2(old_path, new_path)
 
 
-def _secure_data_dir():
-    """Hide and protect the data directory on Windows.
+def _secure_dir(dir_path):
+    """Hide and protect a data directory on Windows.
     - Sets hidden + system attributes so it doesn't show in Explorer
     - Sets ACL to current user only (no other users can access)
     """
-    if os.name != 'nt' or not os.path.isdir(DATA_DIR):
+    if os.name != 'nt' or not os.path.isdir(dir_path):
         return
     try:
         import subprocess
-        # Hide the folder (hidden + system attributes)
         subprocess.run(
-            ['attrib', '+H', '+S', DATA_DIR],
+            ['attrib', '+H', '+S', dir_path],
             capture_output=True, timeout=5
         )
-        # Restrict access to current user only
         username = os.environ.get('USERNAME', '')
         if username:
             subprocess.run(
-                ['icacls', DATA_DIR, '/inheritance:r',
+                ['icacls', dir_path, '/inheritance:r',
                  '/grant:r', f'{username}:(OI)(CI)F'],
                 capture_output=True, timeout=10
             )
     except Exception:
         pass  # non-critical, best-effort
+
+
+def _secure_data_dir():
+    """Secure the active DATA_DIR (legacy wrapper)."""
+    _secure_dir(DATA_DIR)
+
+
+# ══════════════════════════════════════════════════════════════════
+# Auth database — shared across all users
+# ══════════════════════════════════════════════════════════════════
+
+def _get_auth_conn():
+    os.makedirs(BASE_DATA_DIR, exist_ok=True)
+    conn = sqlite3.connect(AUTH_DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def init_auth_db():
+    """Initialize the shared auth database (users table).
+    Call this ONCE at app startup, before Flask starts.
+    """
+    _migrate_old_data()          # legacy data/ → BASE_DATA_DIR if needed
+    os.makedirs(BASE_DATA_DIR, exist_ok=True)
+    _secure_dir(BASE_DATA_DIR)
+
+    conn = _get_auth_conn()
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            username      TEXT PRIMARY KEY,
+            password_hash TEXT NOT NULL,
+            created_at    TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+    # Migrate from old single-DB layout to per-user layout
+    _migrate_single_db_to_per_user()
+
+
+def _migrate_single_db_to_per_user():
+    """If old anonimousq.db exists in BASE_DATA_DIR, migrate to per-user layout."""
+    old_db = os.path.join(BASE_DATA_DIR, "anonimousq.db")
+    if not os.path.exists(old_db):
+        return
+    # Read username from the old DB
+    try:
+        conn = sqlite3.connect(old_db)
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT username, password_hash FROM users LIMIT 1").fetchone()
+        conn.close()
+        if not row:
+            os.remove(old_db)
+            return
+        username = row["username"]
+        password_hash = row["password_hash"]
+    except Exception:
+        return
+
+    # Create per-user directory
+    user_dir = os.path.join(BASE_DATA_DIR, "doctors", username)
+    os.makedirs(user_dir, exist_ok=True)
+
+    # Move database to per-user directory
+    new_db = os.path.join(user_dir, "anonimousq.db")
+    if not os.path.exists(new_db):
+        shutil.move(old_db, new_db)
+    else:
+        os.remove(old_db)
+
+    # Move settings files
+    for fname in ("settings.json", "payment_settings.json"):
+        old_path = os.path.join(BASE_DATA_DIR, fname)
+        new_path = os.path.join(user_dir, fname)
+        if os.path.exists(old_path):
+            if not os.path.exists(new_path):
+                shutil.move(old_path, new_path)
+            else:
+                os.remove(old_path)
+
+    # Copy credentials into auth.db
+    auth_conn = _get_auth_conn()
+    auth_conn.execute(
+        "INSERT OR IGNORE INTO users (username, password_hash) VALUES (?, ?)",
+        (username, password_hash),
+    )
+    auth_conn.commit()
+    auth_conn.close()
+
+
+def set_current_user(username: str):
+    """Switch all data paths to the given user's directory.
+    Call this after successful login or registration.
+    """
+    global _current_user, DATA_DIR, DB_PATH, SETTINGS_PATH, PAYMENT_PATH, BACKUP_DIR
+    _current_user = username
+    DATA_DIR      = os.path.join(BASE_DATA_DIR, "doctors", username)
+    DB_PATH       = os.path.join(DATA_DIR, "anonimousq.db")
+    SETTINGS_PATH = os.path.join(DATA_DIR, "settings.json")
+    PAYMENT_PATH  = os.path.join(DATA_DIR, "payment_settings.json")
+    BACKUP_DIR    = os.path.join(_DOCS_DIR, "AnonimousQ Backup", username)
+    os.makedirs(DATA_DIR, exist_ok=True)
+
+
+def get_current_user() -> str:
+    """Return the currently active username (None if not set)."""
+    return _current_user
 
 
 def auto_backup():
@@ -113,19 +225,15 @@ def _get_conn():
 
 
 def init_db():
-    _migrate_old_data()          # copy old data/ → %APPDATA%\AnonimousQ\ if needed
+    """Initialize the per-user data database.
+    Must call set_current_user() first so DATA_DIR/DB_PATH point to the right place.
+    """
+    if not _current_user:
+        return  # No user set yet — skip
     os.makedirs(DATA_DIR, exist_ok=True)
-    _secure_data_dir()           # hide folder + restrict ACL to current user only
+    _secure_data_dir()
     conn = _get_conn()
     c = conn.cursor()
-
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            id            INTEGER PRIMARY KEY CHECK(id = 1),
-            username      TEXT NOT NULL,
-            password_hash TEXT NOT NULL
-        )
-    """)
 
     c.execute("""
         CREATE TABLE IF NOT EXISTS patients (
@@ -168,6 +276,21 @@ def init_db():
     # Migrate: add email column to patients if missing
     try:
         conn.execute("ALTER TABLE patients ADD COLUMN email TEXT DEFAULT ''")
+    except Exception:
+        pass
+
+    # License cache (single-row, for offline trial/license checks)
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS license_cache (
+            id                INTEGER PRIMARY KEY CHECK(id = 1),
+            trial_start_date  TEXT NOT NULL,
+            licensed          INTEGER DEFAULT 0,
+            last_checked      TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    # Migrate: add HMAC integrity column if missing
+    try:
+        conn.execute("ALTER TABLE license_cache ADD COLUMN hmac TEXT DEFAULT ''")
     except Exception:
         pass
 
@@ -229,62 +352,139 @@ def generate_patient_id_preview(extra_check=None) -> str:
 # ========================
 
 def has_user() -> bool:
-    conn = _get_conn()
-    row = conn.execute("SELECT id FROM users LIMIT 1").fetchone()
+    """Check if any doctor is registered (reads from shared auth.db)."""
+    conn = _get_auth_conn()
+    row = conn.execute("SELECT username FROM users LIMIT 1").fetchone()
     conn.close()
     return row is not None
 
 
 def setup_user(username: str, password: str) -> dict:
+    """Register a new doctor or update an existing one.
+    Writes to shared auth.db and switches to the user's data directory.
+    Each user gets their own isolated data directory.
+    """
     hashed = bcrypt.hashpw(password.encode(), bcrypt.gensalt(12)).decode()
     try:
-        conn = _get_conn()
+        conn = _get_auth_conn()
         conn.execute(
-            "INSERT OR REPLACE INTO users (id, username, password_hash) VALUES (1, ?, ?)",
+            "INSERT OR REPLACE INTO users (username, password_hash) VALUES (?, ?)",
             (username, hashed),
         )
         conn.commit()
         conn.close()
+
+        # Switch to this user's data directory (creates it if needed)
+        set_current_user(username)
         return {"ok": True}
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
 
 def verify_user(username: str, password: str):
-    conn = _get_conn()
-    row = conn.execute("SELECT username, password_hash FROM users LIMIT 1").fetchone()
+    """Verify credentials against the shared auth.db."""
+    conn = _get_auth_conn()
+    row = conn.execute(
+        "SELECT password_hash FROM users WHERE username = ?", (username,)
+    ).fetchone()
     conn.close()
     if not row:
         return False, None
-    if row["username"] != username:
-        return False, None
     if not bcrypt.checkpw(password.encode(), row["password_hash"].encode()):
         return False, None
-    return True, row["username"]
+    return True, username
 
 
 def get_username():
-    conn = _get_conn()
-    row = conn.execute("SELECT username FROM users LIMIT 1").fetchone()
-    conn.close()
-    return row["username"] if row else None
+    """Return the currently active username (set after login/setup)."""
+    return _current_user
 
 
 def set_password(new_password: str):
+    """Update password for the current user in auth.db."""
+    if not _current_user:
+        return
     hashed = bcrypt.hashpw(new_password.encode(), bcrypt.gensalt(12)).decode()
-    conn = _get_conn()
-    conn.execute("UPDATE users SET password_hash=? WHERE id=1", (hashed,))
+    conn = _get_auth_conn()
+    conn.execute(
+        "UPDATE users SET password_hash=? WHERE username=?",
+        (hashed, _current_user),
+    )
     conn.commit()
     conn.close()
 
 
 def verify_current_password(password: str) -> bool:
-    conn = _get_conn()
-    row = conn.execute("SELECT password_hash FROM users LIMIT 1").fetchone()
+    """Verify the current user's password."""
+    if not _current_user:
+        return False
+    conn = _get_auth_conn()
+    row = conn.execute(
+        "SELECT password_hash FROM users WHERE username=?", (_current_user,)
+    ).fetchone()
     conn.close()
     if not row:
         return False
     return bcrypt.checkpw(password.encode(), row["password_hash"].encode())
+
+
+# ========================
+# License Cache (HMAC-protected)
+# ========================
+
+# Secret seed for HMAC — tamper protection for offline license cache.
+# If someone modifies licensed/trial_start_date in SQLite, the HMAC won't match
+# and the app treats it as corrupted (forces Firebase re-check).
+_LICENSE_HMAC_SEED = b"cTlk-2026-x9Qm4vRt7nBw3kJ"
+
+
+def _license_hmac(trial_start_date: str, licensed: int) -> str:
+    """Compute HMAC for license data integrity."""
+    import hashlib, hmac
+    # Include username so copying DB between users doesn't work
+    user = _current_user or ""
+    msg = f"{user}|{trial_start_date}|{licensed}".encode()
+    return hmac.new(_LICENSE_HMAC_SEED, msg, hashlib.sha256).hexdigest()
+
+
+def get_cached_license() -> dict:
+    """Get cached license info from SQLite (for offline use).
+    Returns None if data is missing or tampered with.
+    """
+    conn = _get_conn()
+    row = conn.execute(
+        "SELECT trial_start_date, licensed, last_checked, hmac FROM license_cache WHERE id=1"
+    ).fetchone()
+    conn.close()
+    if not row:
+        return None
+
+    # Verify HMAC integrity — reject tampered data
+    stored_hmac = row["hmac"] or ""
+    expected_hmac = _license_hmac(row["trial_start_date"], row["licensed"])
+    if stored_hmac != expected_hmac:
+        return None  # Tampered — force Firebase re-check
+
+    return {
+        "trial_start_date": row["trial_start_date"],
+        "licensed": bool(row["licensed"]),
+        "last_checked": row["last_checked"],
+    }
+
+
+def set_cached_license(trial_start_date: str, licensed: bool):
+    """Write/update cached license info in SQLite with HMAC protection."""
+    licensed_int = int(licensed)
+    sig = _license_hmac(trial_start_date, licensed_int)
+    conn = _get_conn()
+    conn.execute(
+        """INSERT OR REPLACE INTO license_cache
+           (id, trial_start_date, licensed, last_checked, hmac)
+           VALUES (1, ?, ?, ?, ?)""",
+        (trial_start_date, licensed_int, datetime.now().isoformat(), sig),
+    )
+    conn.commit()
+    conn.close()
 
 
 # ========================

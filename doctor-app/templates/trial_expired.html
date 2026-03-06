@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}תקופת הניסיון הסתיימה{% endblock %}
+
+{% block content %}
+<div style="display:flex; align-items:center; justify-content:center; min-height:80vh;">
+  <div class="card shadow-lg" style="max-width:520px; width:100%; border-radius:18px; text-align:center; padding:48px 40px; border-top:4px solid #dc3545;">
+
+    <div style="font-size:4.5rem; margin-bottom:12px; line-height:1;">&#128274;</div>
+
+    <h2 class="fw-bold mb-2" style="color:#dc3545;">תקופת הניסיון הסתיימה</h2>
+
+    <p class="mb-4" style="font-size:1.05rem; color:#555; line-height:1.7;">
+      תקופת הניסיון החינמית בת 30 ימים הגיעה לסיומה.<br>
+      על מנת להמשיך להשתמש במערכת ClinicTor,<br>
+      יש לרכוש מנוי קבוע.
+    </p>
+
+    <div class="p-3 rounded mb-4" style="background:linear-gradient(135deg, #f8f9fa, #e9ecef); border:1px solid #dee2e6;">
+      <div class="fw-bold mb-2" style="font-size:1.1rem; color:#333;">&#128222; יצירת קשר לרכישת מנוי</div>
+      <div class="mb-1">
+        <a href="mailto:motiml77@gmail.com" class="text-decoration-none fw-semibold" style="color:#0d6efd;">
+          &#9993; motiml77@gmail.com
+        </a>
+      </div>
+    </div>
+
+    <div class="mb-4 p-3 rounded" style="background:#fff3cd; border:1px solid #ffc107;">
+      <div class="small" style="color:#856404;">
+        &#128161; <strong>שימו לב:</strong> כל הנתונים שלכם (מטופלים, תורים, הגדרות)
+        שמורים ונגישים מיד עם חידוש המנוי. שום מידע לא נמחק.
+      </div>
+    </div>
+
+    <a href="{{ url_for('trial_expired') }}" class="btn btn-primary mb-2" style="border-radius:10px; padding:10px 32px;">
+      &#128260; שילמתי — בדוק שוב
+    </a>
+    <div class="text-muted small mb-3">לאחר הפעלת המנוי על ידי המפתח, לחצו כאן כדי להיכנס</div>
+
+  </div>
+</div>
+{% endblock %}

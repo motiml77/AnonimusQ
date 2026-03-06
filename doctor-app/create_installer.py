@@ -46,11 +46,11 @@ def main():
     bat_path = os.path.join(OUTPUT_DIR, "install.bat")
     bat_content = r'''@echo off
 chcp 65001 > nul
-title AnonimousQ - Installation
+title ClinicTor - Installation
 
 echo.
 echo =========================================
-echo   AnonimousQ v2.0.0 - Setup
+echo   ClinicTor v2.0.0 - Setup
 echo   Installing...
 echo =========================================
 echo.
@@ -79,23 +79,23 @@ if exist "%INSTALL_DIR%\AnonimousQ" (
 :: Create Start Menu shortcut
 echo Creating shortcuts...
 set "START_MENU=%APPDATA%\Microsoft\Windows\Start Menu\Programs"
-powershell -NoProfile -Command "$ws = New-Object -ComObject WScript.Shell; $s = $ws.CreateShortcut('%START_MENU%\AnonimousQ.lnk'); $s.TargetPath = '%INSTALL_DIR%\AnonimousQ.exe'; $s.WorkingDirectory = '%INSTALL_DIR%'; $s.IconLocation = '%INSTALL_DIR%\AnonimousQ.exe'; $s.Description = 'AnonimousQ - Appointment System'; $s.Save()"
+powershell -NoProfile -Command "$ws = New-Object -ComObject WScript.Shell; $s = $ws.CreateShortcut('%START_MENU%\ClinicTor.lnk'); $s.TargetPath = '%INSTALL_DIR%\AnonimousQ.exe'; $s.WorkingDirectory = '%INSTALL_DIR%'; $s.IconLocation = '%INSTALL_DIR%\AnonimousQ.exe'; $s.Description = 'ClinicTor'; $s.Save()"
 
 :: Create Desktop shortcut
 set /p DESKTOP_SHORTCUT="Create desktop shortcut? (Y/N): "
 if /i "%DESKTOP_SHORTCUT%"=="Y" (
-    powershell -NoProfile -Command "$ws = New-Object -ComObject WScript.Shell; $s = $ws.CreateShortcut([Environment]::GetFolderPath('Desktop') + '\AnonimousQ.lnk'); $s.TargetPath = '%INSTALL_DIR%\AnonimousQ.exe'; $s.WorkingDirectory = '%INSTALL_DIR%'; $s.IconLocation = '%INSTALL_DIR%\AnonimousQ.exe'; $s.Description = 'AnonimousQ - Appointment System'; $s.Save()"
+    powershell -NoProfile -Command "$ws = New-Object -ComObject WScript.Shell; $s = $ws.CreateShortcut([Environment]::GetFolderPath('Desktop') + '\ClinicTor.lnk'); $s.TargetPath = '%INSTALL_DIR%\AnonimousQ.exe'; $s.WorkingDirectory = '%INSTALL_DIR%'; $s.IconLocation = '%INSTALL_DIR%\AnonimousQ.exe'; $s.Description = 'ClinicTor'; $s.Save()"
     echo Desktop shortcut created.
 )
 
 :: Create uninstaller
 echo @echo off > "%INSTALL_DIR%\uninstall.bat"
 echo chcp 65001 ^> nul >> "%INSTALL_DIR%\uninstall.bat"
-echo echo Uninstalling AnonimousQ... >> "%INSTALL_DIR%\uninstall.bat"
+echo echo Uninstalling ClinicTor... >> "%INSTALL_DIR%\uninstall.bat"
 echo set /p CONFIRM="Are you sure? (Y/N): " >> "%INSTALL_DIR%\uninstall.bat"
 echo if /i not "%%CONFIRM%%"=="Y" exit /b >> "%INSTALL_DIR%\uninstall.bat"
-echo del "%%APPDATA%%\Microsoft\Windows\Start Menu\Programs\AnonimousQ.lnk" 2^>nul >> "%INSTALL_DIR%\uninstall.bat"
-echo del "%%USERPROFILE%%\Desktop\AnonimousQ.lnk" 2^>nul >> "%INSTALL_DIR%\uninstall.bat"
+echo del "%%APPDATA%%\Microsoft\Windows\Start Menu\Programs\ClinicTor.lnk" 2^>nul >> "%INSTALL_DIR%\uninstall.bat"
+echo del "%%USERPROFILE%%\Desktop\ClinicTor.lnk" 2^>nul >> "%INSTALL_DIR%\uninstall.bat"
 echo echo Files removed. >> "%INSTALL_DIR%\uninstall.bat"
 echo echo To delete app data, remove: %%APPDATA%%\AnonimousQ >> "%INSTALL_DIR%\uninstall.bat"
 echo rmdir /S /Q "%%LOCALAPPDATA%%\AnonimousQ" >> "%INSTALL_DIR%\uninstall.bat"
@@ -104,12 +104,12 @@ echo pause >> "%INSTALL_DIR%\uninstall.bat"
 echo.
 echo =========================================
 echo   Installation complete!
-echo   AnonimousQ installed to: %INSTALL_DIR%
+echo   ClinicTor installed to: %INSTALL_DIR%
 echo =========================================
 echo.
 
 :: Ask to launch
-set /p LAUNCH="Launch AnonimousQ now? (Y/N): "
+set /p LAUNCH="Launch ClinicTor now? (Y/N): "
 if /i "%LAUNCH%"=="Y" (
     start "" "%INSTALL_DIR%\AnonimousQ.exe"
 )
