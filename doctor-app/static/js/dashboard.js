@@ -183,7 +183,7 @@ function _showContextMenu(x, y, eventId, source, status, treated, paid, paymentM
 
   if (status === 'pending') {
     // ── Pending: approve / reject only ──
-    menu.appendChild(_ctxItem('✔', 'אשר תור', '#198754',
+    menu.appendChild(_ctxItem('✔', 'אשר תור', '#2bb66e',
       () => { menu.style.display = 'none'; approveAppt(eventId, source); }
     ));
     menu.appendChild(_ctxItem('✕', 'דחה תור', '#dc3545',
@@ -194,13 +194,13 @@ function _showContextMenu(x, y, eventId, source, status, treated, paid, paymentM
     menu.appendChild(_ctxItem('✔', 'אשר ביטול', '#dc3545',
       () => { menu.style.display = 'none'; approveCancelReq(eventId, source); }
     ));
-    menu.appendChild(_ctxItem('✕', 'דחה בקשת ביטול', '#0d6efd',
+    menu.appendChild(_ctxItem('✕', 'דחה בקשת ביטול', '#2bb66e',
       () => { menu.style.display = 'none'; rejectCancelReq(eventId, source); }
     ));
   } else {
     // ── Booked: treat + payment ──
     menu.appendChild(_ctxItem(
-      treated ? '✔' : '○', 'טיפול בוצע', '#0d6efd',
+      treated ? '✔' : '○', 'טיפול בוצע', '#2bb66e',
       () => { menu.style.display = 'none'; _markAppt(eventId, source, 'treated', !treated, null); }
     ));
 
@@ -221,7 +221,7 @@ function _showContextMenu(x, y, eventId, source, status, treated, paid, paymentM
     });
     payBtn.innerHTML =
       `<span style="display:flex;align-items:center;gap:8px;">` +
-      `<span style="font-size:1rem;color:#198754">${paid ? '✔' : '○'}</span>` +
+      `<span style="font-size:1rem;color:#2bb66e">${paid ? '✔' : '○'}</span>` +
       `תשלום${methodLabel ? ' (' + methodLabel + ')' : ''}` +
       `</span>` + (payDisabled
         ? `<span style="font-size:.7rem;color:#adb5bd;">סמן תחילה שטיפול בוצע</span>`
@@ -244,7 +244,7 @@ function _showContextMenu(x, y, eventId, source, status, treated, paid, paymentM
     Object.entries(PAYMENT_LABELS).forEach(([key, label]) => {
       const mi = _ctxItem(
         paymentMethod === key ? '✔' : '　',
-        label, '#198754',
+        label, '#2bb66e',
         () => { menu.style.display = 'none'; _markAppt(eventId, source, 'paid', true, key); }
       );
       sub.appendChild(mi);
@@ -326,7 +326,7 @@ function _rerenderBadges(el, props) {
   if (props.treated) {
     var b = document.createElement('span');
     b.title = 'טיפול בוצע';
-    b.style.cssText = 'color:#fff;background:#0d6efd;border-radius:3px;padding:0 3px;font-size:.68rem;font-weight:700;';
+    b.style.cssText = 'color:#fff;background:#2bb66e;border-radius:3px;padding:0 3px;font-size:.68rem;font-weight:700;';
     b.textContent = '✔';
     badges.appendChild(b);
   }
@@ -334,7 +334,7 @@ function _rerenderBadges(el, props) {
     var b2 = document.createElement('span');
     var pm = PAYMENT_LABELS[props.paymentMethod];
     b2.title = pm ? 'שולם – ' + pm : 'תשלום התקבל';
-    b2.style.cssText = 'color:#fff;background:#198754;border-radius:3px;padding:0 3px;font-size:.68rem;font-weight:700;';
+    b2.style.cssText = 'color:#fff;background:#2bb66e;border-radius:3px;padding:0 3px;font-size:.68rem;font-weight:700;';
     b2.textContent = pm ? pm[0] + '₪' : '₪';
     badges.appendChild(b2);
   }
@@ -391,7 +391,7 @@ document.addEventListener('DOMContentLoaded', function () {
     height: 'calc(100vh - 140px)',
     expandRows: true,
     nowIndicator: true,
-    eventColor: '#0d6efd',
+    eventColor: '#2bb66e',
     eventTimeFormat: { hour: '2-digit', minute: '2-digit', meridiem: false, hour12: false },
     dayMaxEvents: 3,                                   // month view: collapse after 3
 
@@ -459,7 +459,7 @@ document.addEventListener('DOMContentLoaded', function () {
       if (props.treated) {
         const b = document.createElement('span');
         b.title = 'טיפול בוצע';
-        b.style.cssText = 'color:#fff;background:#0d6efd;border-radius:3px;padding:0 3px;font-size:.68rem;font-weight:700;';
+        b.style.cssText = 'color:#fff;background:#2bb66e;border-radius:3px;padding:0 3px;font-size:.68rem;font-weight:700;';
         b.textContent = '✔';
         badges.appendChild(b);
       }
@@ -467,7 +467,7 @@ document.addEventListener('DOMContentLoaded', function () {
         const b = document.createElement('span');
         const pm = PAYMENT_LABELS[props.paymentMethod];
         b.title = pm ? 'שולם – ' + pm : 'תשלום התקבל';
-        b.style.cssText = 'color:#fff;background:#198754;border-radius:3px;padding:0 3px;font-size:.68rem;font-weight:700;';
+        b.style.cssText = 'color:#fff;background:#2bb66e;border-radius:3px;padding:0 3px;font-size:.68rem;font-weight:700;';
         b.textContent = pm ? pm[0] + '₪' : '₪';
         badges.appendChild(b);
       }
@@ -827,8 +827,8 @@ function toggleOnlineBooking() {
     btn.style.animation = 'btnDisabledPulse 1.5s ease-in-out infinite';
   } else {
     btn.innerHTML = '&#9989; תורים אונליין פעילים';
-    btn.style.background = '#198754';
-    btn.style.borderColor = '#198754';
+    btn.style.background = '#2bb66e';
+    btn.style.borderColor = '#2bb66e';
     btn.style.animation = 'none';
   }
 
@@ -840,8 +840,8 @@ function toggleOnlineBooking() {
         alert('שגיאה: ' + (data.error || ''));
         if (isCurrentlyEnabled) {
           btn.innerHTML = '&#9989; תורים אונליין פעילים';
-          btn.style.background = '#198754';
-          btn.style.borderColor = '#198754';
+          btn.style.background = '#2bb66e';
+          btn.style.borderColor = '#2bb66e';
           btn.style.animation = 'none';
         } else {
           btn.innerHTML = '&#128683; תורים אונליין מנוטרלים';
@@ -856,8 +856,8 @@ function toggleOnlineBooking() {
       // Revert on network error
       if (isCurrentlyEnabled) {
         btn.innerHTML = '&#9989; תורים אונליין פעילים';
-        btn.style.background = '#198754';
-        btn.style.borderColor = '#198754';
+        btn.style.background = '#2bb66e';
+        btn.style.borderColor = '#2bb66e';
         btn.style.animation = 'none';
       } else {
         btn.innerHTML = '&#128683; תורים אונליין מנוטרלים';

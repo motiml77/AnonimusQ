@@ -291,7 +291,7 @@ fetch('/api/license-info').then(function(r) { return r.json(); }).then(function(
 
   if (data.status === 'trial') {
     var pct = Math.round((data.daysUsed / data.trialDays) * 100);
-    var barColor = pct < 50 ? '#198754' : pct < 80 ? '#ffc107' : '#dc3545';
+    var barColor = pct < 50 ? '#2bb66e' : pct < 80 ? '#ffc107' : '#dc3545';
     var textColor = pct < 80 ? '' : 'text-danger fw-bold';
 
     body.innerHTML =

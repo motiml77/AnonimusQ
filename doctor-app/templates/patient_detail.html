@@ -967,7 +967,7 @@ function _showRefPaidCtx(event) {
   hdr.style.cssText = 'padding:5px 14px;font-size:.75rem;color:#6c757d;font-weight:600;';
   hdr.textContent = 'עדכון סכום ששולם למתווך';
   menu.appendChild(hdr);
-  menu.appendChild(_ctxItem('&#9998;', 'הזן סכום ששולם', '#198754', function() {
+  menu.appendChild(_ctxItem('&#9998;', 'הזן סכום ששולם', '#2bb66e', function() {
     var current = 0;
     _refPayments.forEach(function(p) { if (p.paid_to_broker) current += p.amount; });
     var input = prompt('הזן את הסכום הכולל ששולם למתווך:', Math.round(current * 100) / 100);
@@ -1100,7 +1100,7 @@ function _showApptCtx(event, field, idx) {
     hdr.textContent = 'שינוי סטטוס';
     menu.appendChild(hdr);
     if (appt.status !== 'booked')
-      menu.appendChild(_ctxItem('&#10004;', 'אשר תור', '#198754', function() { _apptChangeStatus(idx, 'booked'); }));
+      menu.appendChild(_ctxItem('&#10004;', 'אשר תור', '#2bb66e', function() { _apptChangeStatus(idx, 'booked'); }));
     if (appt.status !== 'cancelled')
       menu.appendChild(_ctxItem('&#10006;', 'בטל תור', '#dc3545', function() { _apptChangeStatus(idx, 'cancelled'); }));
     if (appt.status !== 'pending')
@@ -1109,7 +1109,7 @@ function _showApptCtx(event, field, idx) {
     var sep = document.createElement('hr');
     sep.style.cssText = 'margin:3px 8px;border-color:#e9ecef;';
     menu.appendChild(sep);
-    menu.appendChild(_ctxItem('&#128197;', 'שינוי מועד', '#0d6efd', function() { openReschedule(idx); }));
+    menu.appendChild(_ctxItem('&#128197;', 'שינוי מועד', '#2bb66e', function() { openReschedule(idx); }));
   }
 
   else if (field === 'treated') {
@@ -1121,7 +1121,7 @@ function _showApptCtx(event, field, idx) {
       warn.textContent = 'לא ניתן לסמן טיפול בתור שבוטל';
       menu.appendChild(warn);
     } else if (!appt.treated) {
-      menu.appendChild(_ctxItem('&#10004;', 'סמן טיפול בוצע', '#0d6efd', function() { _apptMark(idx, 'treated', true); }));
+      menu.appendChild(_ctxItem('&#10004;', 'סמן טיפול בוצע', '#2bb66e', function() { _apptMark(idx, 'treated', true); }));
     } else {
       menu.appendChild(_ctxItem('&#8617;', 'בטל סימון טיפול', '#6c757d', function() { _apptMark(idx, 'treated', false); }));
     }
@@ -1151,10 +1151,10 @@ function _showApptCtx(event, field, idx) {
           sep.style.cssText = 'margin:3px 8px;border-color:#e9ecef;';
           menu.appendChild(sep);
         }
-        menu.appendChild(_ctxItem('&#128179;', 'ביט', '#198754', function() { _apptMark(idx, 'paid', true, 'bit'); }));
-        menu.appendChild(_ctxItem('&#128241;', 'פייבוקס', '#198754', function() { _apptMark(idx, 'paid', true, 'paybox'); }));
-        menu.appendChild(_ctxItem('&#128181;', 'מזומן', '#198754', function() { _apptMark(idx, 'paid', true, 'cash'); }));
-        menu.appendChild(_ctxItem('&#127974;', 'העברה בנקאית', '#198754', function() { _apptMark(idx, 'paid', true, 'bank'); }));
+        menu.appendChild(_ctxItem('&#128179;', 'ביט', '#2bb66e', function() { _apptMark(idx, 'paid', true, 'bit'); }));
+        menu.appendChild(_ctxItem('&#128241;', 'פייבוקס', '#2bb66e', function() { _apptMark(idx, 'paid', true, 'paybox'); }));
+        menu.appendChild(_ctxItem('&#128181;', 'מזומן', '#2bb66e', function() { _apptMark(idx, 'paid', true, 'cash'); }));
+        menu.appendChild(_ctxItem('&#127974;', 'העברה בנקאית', '#2bb66e', function() { _apptMark(idx, 'paid', true, 'bank'); }));
       }
     } else {
       menu.appendChild(_ctxItem('&#8617;', 'בטל סימון תשלום', '#6c757d', function() { _apptMark(idx, 'paid', false); }));

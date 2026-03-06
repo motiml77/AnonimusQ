@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>{% block title %}ClinicTor{% endblock %} – מערכת תורים</title>
   <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}" />
-  <meta name="theme-color" content="#0d6efd" />
+  <meta name="theme-color" content="#0a2540" />
   <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='img/logo-32.png') }}" />
   <link rel="icon" type="image/png" sizes="192x192" href="{{ url_for('static', filename='img/logo-192.png') }}" />
   <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='img/logo-180.png') }}" />
@@ -18,24 +18,33 @@
 <body>
 
 {% if session.authenticated %}
-<nav class="navbar navbar-expand-lg navbar-dark bg-primary px-4 py-2">
-  <a class="navbar-brand fw-bold fs-4" href="{{ url_for('dashboard') }}">
-    &#127973; ClinicTor
+<nav class="navbar navbar-expand-lg navbar-dark px-4 py-2">
+  <a class="navbar-brand d-flex align-items-center" href="{{ url_for('dashboard') }}">
+    <img src="{{ url_for('static', filename='img/clinicTor-transparent-white.png') }}" alt="ClinicTor" style="height:32px;width:auto;" />
   </a>
-  {% if session.username %}
-  <span class="badge bg-light text-primary ms-3 fs-6">{{ session.username }}</span>
-  {% endif %}
-  <div class="navbar-nav flex-row gap-3 me-auto">
-    <a class="nav-link px-2 {% if request.endpoint == 'dashboard' %}active fw-bold{% endif %}"
+  <div class="navbar-nav flex-row gap-2 me-auto">
+    <a class="nav-link {% if request.endpoint == 'dashboard' %}active{% endif %}"
        href="{{ url_for('dashboard') }}">לוח שנה</a>
-    <a class="nav-link px-2 {% if request.endpoint in ('patients', 'patient_detail') %}active fw-bold{% endif %}"
+    <a class="nav-link {% if request.endpoint in ('patients', 'patient_detail') %}active{% endif %}"
        href="{{ url_for('patients') }}">מטופלים</a>
-    <a class="nav-link px-2 {% if request.endpoint == 'settings' %}active fw-bold{% endif %}"
+    <a class="nav-link {% if request.endpoint == 'settings' %}active{% endif %}"
        href="{{ url_for('settings') }}">הגדרות</a>
-    <a class="nav-link px-2 {% if request.endpoint == 'reports' %}active fw-bold{% endif %}"
-       href="{{ url_for('reports') }}">&#128202; דוחות</a>
-    <a class="nav-link px-2 text-warning" href="{{ url_for('logout') }}">יציאה</a>
+    <a class="nav-link {% if request.endpoint == 'reports' %}active{% endif %}"
+       href="{{ url_for('reports') }}">דוחות</a>
   </div>
+  {% if session.username %}
+  <div class="d-flex align-items-center gap-2 me-3">
+    <div style="width:32px;height:32px;border-radius:50%;background:var(--clr-primary);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:0.8rem;">{{ session.username[0]|upper }}</div>
+    <div class="lh-sm">
+      <div style="color:#fff;font-size:0.82rem;font-weight:600;">{{ session.username }}</div>
+      <div class="d-flex align-items-center gap-1" style="font-size:0.7rem;color:rgba(255,255,255,0.6);">
+        <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#2bb66e;"></span>
+        מחובר
+      </div>
+    </div>
+    <a class="nav-link text-warning ms-2" href="{{ url_for('logout') }}" style="font-size:0.82rem;">יציאה</a>
+  </div>
+  {% endif %}
 </nav>
 {% endif %}
 
@@ -54,7 +63,7 @@
 
   <!-- Update notification banner -->
   <div id="updateBanner" class="alert alert-info alert-dismissible fade d-none" role="alert"
-       style="border-right:4px solid #0d6efd; background:#e8f4fd;">
+       style="border-right:4px solid #2bb66e; background:#f0fdf4;">
     <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
       <div>
         <strong>&#128260; עדכון זמין!</strong>

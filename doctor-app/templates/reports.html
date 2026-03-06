@@ -442,7 +442,7 @@ function showReportCtx(event, field, apptId) {
       warn.textContent = 'לא ניתן לסמן טיפול בתור שבוטל';
       menu.appendChild(warn);
     } else if (!appt.treated) {
-      menu.appendChild(_rptCtxItem('✔', 'סמן טיפול בוצע', '#0d6efd', () => _rptMark(apptId, 'treated', true)));
+      menu.appendChild(_rptCtxItem('✔', 'סמן טיפול בוצע', '#2bb66e', () => _rptMark(apptId, 'treated', true)));
     } else {
       menu.appendChild(_rptCtxItem('↩', 'בטל סימון טיפול', '#6c757d', () => _rptMark(apptId, 'treated', false)));
     }
@@ -466,10 +466,10 @@ function showReportCtx(event, field, apptId) {
         warn.textContent = 'יש לסמן טיפול בוצע קודם';
         menu.appendChild(warn);
       } else {
-        menu.appendChild(_rptCtxItem('💳', 'ביט', '#198754', () => _rptMark(apptId, 'paid', true, 'bit')));
-        menu.appendChild(_rptCtxItem('📱', 'פייבוקס', '#198754', () => _rptMark(apptId, 'paid', true, 'paybox')));
-        menu.appendChild(_rptCtxItem('💵', 'מזומן', '#198754', () => _rptMark(apptId, 'paid', true, 'cash')));
-        menu.appendChild(_rptCtxItem('🏦', 'העברה בנקאית', '#198754', () => _rptMark(apptId, 'paid', true, 'bank')));
+        menu.appendChild(_rptCtxItem('💳', 'ביט', '#2bb66e', () => _rptMark(apptId, 'paid', true, 'bit')));
+        menu.appendChild(_rptCtxItem('📱', 'פייבוקס', '#2bb66e', () => _rptMark(apptId, 'paid', true, 'paybox')));
+        menu.appendChild(_rptCtxItem('💵', 'מזומן', '#2bb66e', () => _rptMark(apptId, 'paid', true, 'cash')));
+        menu.appendChild(_rptCtxItem('🏦', 'העברה בנקאית', '#2bb66e', () => _rptMark(apptId, 'paid', true, 'bank')));
       }
     } else {
       menu.appendChild(_rptCtxItem('↩', 'בטל סימון תשלום', '#6c757d', () => _rptMark(apptId, 'paid', false)));

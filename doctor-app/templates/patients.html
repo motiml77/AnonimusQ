@@ -3,16 +3,20 @@
 
 {% block content %}
 <div class="d-flex align-items-center justify-content-between mb-3">
-  <h4 class="mb-0">&#128101; ניהול מטופלים</h4>
+  <h4 class="mb-0">ניהול מטופלים</h4>
   <div class="d-flex gap-2 align-items-center">
-    <div class="input-group" style="width:280px;">
-      <span class="input-group-text">&#128269;</span>
-      <input type="text" id="patientSearch" class="form-control form-control-sm"
-             placeholder="חיפוש לפי שם או מזהה..."
+    <div class="position-relative" style="width:280px;">
+      <span class="position-absolute" style="top:50%;right:14px;transform:translateY(-50%);color:#94a3b8;pointer-events:none;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      </span>
+      <input type="text" id="patientSearch" class="form-control"
+             style="padding-right:40px;height:44px;"
+             placeholder="חיפוש מטופלים..."
              oninput="filterPatients(this.value)" autocomplete="off" />
     </div>
     <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addModal">
-      + הוסף מטופל
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="me-1"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
+      הוסף מטופל
     </button>
   </div>
 </div>
@@ -183,17 +187,17 @@
         <h5 class="modal-title fw-bold">&#128101; מטופל חדש</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
-      <form method="post" action="{{ url_for('patients_add') }}" id="addForm">
+      <form method="post" action="{{ url_for('patients_add') }}" id="addForm" autocomplete="off">
         <!-- Hidden field carries the previewed ID to the server -->
         <input type="hidden" name="suggested_id" id="suggestedIdInput" value="" />
         <div class="modal-body pt-2">
 
           <!-- UUID preview badge -->
           <div class="text-center py-3 mb-3"
-               style="background:linear-gradient(135deg,#f0f4ff,#e8f5e9);border-radius:12px;">
+               style="background:linear-gradient(135deg,#f0fdf4,#e6f9ee);border-radius:12px;">
             <div class="text-muted mb-1" style="font-size:.75rem;letter-spacing:.05em;">מזהה אנונימי</div>
             <div id="previewId"
-                 style="font-size:2rem;font-weight:700;letter-spacing:.25em;color:#0d6efd;font-family:monospace;">
+                 style="font-size:2rem;font-weight:700;letter-spacing:.25em;color:#2bb66e;font-family:monospace;">
               •••••
             </div>
             <div class="text-muted" style="font-size:.7rem;">נוצר אוטומטית ומאומת כייחודי</div>
@@ -201,20 +205,20 @@
 
           <div class="mb-3">
             <label class="form-label fw-semibold mb-1">שם מלא <span class="text-danger">*</span></label>
-            <input type="text" name="name" id="addNameInput" class="form-control" required />
+            <input type="text" name="name" id="addNameInput" class="form-control" required autocomplete="off" />
           </div>
           <div class="mb-1">
             <label class="form-label fw-semibold mb-1">טלפון אישי</label>
-            <input type="tel" name="phone" class="form-control" placeholder="050-0000000" />
+            <input type="tel" name="phone" class="form-control" placeholder="050-0000000" autocomplete="off" />
           </div>
           <div class="mb-1">
             <label class="form-label fw-semibold mb-1">אימייל</label>
-            <input type="email" name="email" class="form-control" placeholder="example@email.com" dir="ltr" />
+            <input type="email" name="email" class="form-control" placeholder="example@email.com" dir="ltr" autocomplete="off" />
           </div>
           <div class="mb-1">
             <label class="form-label fw-semibold mb-1">מחיר (₪)</label>
             <input type="number" name="price" class="form-control" min="0" step="any"
-                   placeholder="ברירת מחדל מהגדרות" />
+                   placeholder="ברירת מחדל מהגדרות" autocomplete="off" />
           </div>
           <div class="form-check mt-2">
             <input type="checkbox" name="is_anonymous" id="addAnonymous" class="form-check-input" />
@@ -459,7 +463,7 @@ function showPatientCtx(event, id, name, isActive) {
       () => { menu.style.display = 'none'; setPatientActive(id, name, 0); }
     ));
   } else {
-    menu.appendChild(_ctxBtn('✅', 'החזר לפעילים', '#198754',
+    menu.appendChild(_ctxBtn('✅', 'החזר לפעילים', '#2bb66e',
       () => { menu.style.display = 'none'; setPatientActive(id, name, 1); }
     ));
   }
@@ -471,7 +475,7 @@ function showPatientCtx(event, id, name, isActive) {
   menu.appendChild(_ctxBtn('📂', 'כרטיס מטופל', '#6f42c1',
     () => { menu.style.display = 'none'; window.location.href = '/patients/' + id; }
   ));
-  menu.appendChild(_ctxBtn('📋', 'היסטוריית תורים', '#0d6efd',
+  menu.appendChild(_ctxBtn('📋', 'היסטוריית תורים', '#2bb66e',
     () => {
       menu.style.display = 'none';
       const row = document.querySelector(`.patient-row[data-id="${id}"]`);
@@ -625,7 +629,7 @@ function showHistoryCtx(event, field, idx) {
     menu.appendChild(hdr);
 
     if (appt.status !== 'booked') {
-      menu.appendChild(_histCtxItem('✅', 'אשר תור', '#198754', () => _histChangeStatus(idx, 'booked')));
+      menu.appendChild(_histCtxItem('✅', 'אשר תור', '#2bb66e', () => _histChangeStatus(idx, 'booked')));
     }
     if (appt.status !== 'cancelled') {
       menu.appendChild(_histCtxItem('❌', 'בטל תור', '#dc3545', () => _histChangeStatus(idx, 'cancelled')));
@@ -647,7 +651,7 @@ function showHistoryCtx(event, field, idx) {
       warn.textContent = 'לא ניתן לסמן טיפול בתור שבוטל';
       menu.appendChild(warn);
     } else if (!appt.treated) {
-      menu.appendChild(_histCtxItem('✔', 'סמן טיפול בוצע', '#0d6efd', () => _histMark(idx, 'treated', true)));
+      menu.appendChild(_histCtxItem('✔', 'סמן טיפול בוצע', '#2bb66e', () => _histMark(idx, 'treated', true)));
     } else {
       menu.appendChild(_histCtxItem('↩', 'בטל סימון טיפול', '#6c757d', () => _histMark(idx, 'treated', false)));
     }
@@ -671,10 +675,10 @@ function showHistoryCtx(event, field, idx) {
         warn.textContent = 'יש לסמן טיפול בוצע קודם';
         menu.appendChild(warn);
       } else {
-        menu.appendChild(_histCtxItem('💳', 'ביט', '#198754', () => _histMark(idx, 'paid', true, 'bit')));
-        menu.appendChild(_histCtxItem('📱', 'פייבוקס', '#198754', () => _histMark(idx, 'paid', true, 'paybox')));
-        menu.appendChild(_histCtxItem('💵', 'מזומן', '#198754', () => _histMark(idx, 'paid', true, 'cash')));
-        menu.appendChild(_histCtxItem('🏦', 'העברה בנקאית', '#198754', () => _histMark(idx, 'paid', true, 'bank')));
+        menu.appendChild(_histCtxItem('💳', 'ביט', '#2bb66e', () => _histMark(idx, 'paid', true, 'bit')));
+        menu.appendChild(_histCtxItem('📱', 'פייבוקס', '#2bb66e', () => _histMark(idx, 'paid', true, 'paybox')));
+        menu.appendChild(_histCtxItem('💵', 'מזומן', '#2bb66e', () => _histMark(idx, 'paid', true, 'cash')));
+        menu.appendChild(_histCtxItem('🏦', 'העברה בנקאית', '#2bb66e', () => _histMark(idx, 'paid', true, 'bank')));
       }
     } else {
       menu.appendChild(_histCtxItem('↩', 'בטל סימון תשלום', '#6c757d', () => _histMark(idx, 'paid', false)));
