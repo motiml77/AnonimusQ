@@ -55,27 +55,6 @@
     margin-bottom: 28px;
     text-align: center;
   }
-  /* Tab pills */
-  .setup-card .nav-pills {
-    background: #f1f5f9;
-    border-radius: 8px;
-    padding: 4px;
-    margin-bottom: 24px;
-  }
-  .setup-card .nav-pills .nav-link {
-    color: #64748b;
-    font-weight: 600;
-    font-size: 0.88rem;
-    border-radius: 6px;
-    padding: 10px 16px;
-    font-family: 'Inter', 'Segoe UI', sans-serif;
-    border: none;
-  }
-  .setup-card .nav-pills .nav-link.active {
-    background: #2bb66e;
-    color: #fff;
-    box-shadow: 0 2px 8px rgba(43, 182, 110, 0.25);
-  }
   /* Form inputs */
   .setup-label {
     display: block;
@@ -178,6 +157,7 @@
     color: #2bb66e;
     font-weight: 600;
     text-decoration: none;
+    cursor: pointer;
   }
   .setup-footer-link a:hover { text-decoration: underline; }
   .secure-footer {
@@ -206,9 +186,6 @@
       <img src="{{ url_for('static', filename='img/clinicTor-transparent.png') }}" alt="ClinicTor" />
     </div>
 
-    <h1>הגדרת חשבון</h1>
-    <p class="setup-subtitle">צור חשבון חדש או התחבר לחשבון קיים</p>
-
     {% with messages = get_flashed_messages(with_categories=true) %}
     {% if messages %}
       {% for category, message in messages %}
@@ -219,103 +196,101 @@
     {% endif %}
     {% endwith %}
 
-    <!-- Tab toggle -->
-    <ul class="nav nav-pills nav-fill" role="tablist">
-      <li class="nav-item" role="presentation">
-        <button class="nav-link active" data-bs-toggle="pill" data-bs-target="#newAccount"
-                type="button" role="tab">חשבון חדש</button>
-      </li>
-      <li class="nav-item" role="presentation">
-        <button class="nav-link" data-bs-toggle="pill" data-bs-target="#existingAccount"
-                type="button" role="tab">יש לי חשבון</button>
-      </li>
-    </ul>
+    <!-- ====== Login View (default) ====== -->
+    <div id="loginView">
+      <h1>התחברות</h1>
+      <p class="setup-subtitle">התחבר לחשבון קיים</p>
 
-    <div class="tab-content">
-      <!-- ====== New Account Tab ====== -->
-      <div class="tab-pane fade show active" id="newAccount" role="tabpanel">
-        <div class="setup-info">
-          <strong>נדרש חיבור לאינטרנט</strong> להרשמה ראשונה.<br>
-          לאחר ההרשמה, תוכל להתחבר גם ללא אינטרנט.
-        </div>
-        <p style="font-size:0.82rem;color:#64748b;margin-bottom:20px;text-align:right;">
-          שם המשתמש חייב להיות ייחודי — ישמש כמזהה שלך במערכת.<br>
-          המטופלים יגיעו דרך:
-          <code>anonimusq.motiml77.workers.dev?doctor=<strong>[שם המשתמש]</strong></code>
-        </p>
-        <form method="post">
-          <input type="hidden" name="mode" value="register" />
-          <label class="setup-label">שם משתמש (לטיני, ללא רווחים) <span class="required">*</span></label>
-          <input type="text" name="username" class="setup-input" style="font-family:monospace;direction:ltr;text-align:left;"
-                 placeholder="לדוגמה: dr-cohen" required autofocus
-                 pattern="[a-zA-Z0-9_\-]+" minlength="3" maxlength="40" />
-          <div class="setup-hint">ניתן להשתמש באותיות לטיניות, ספרות, מקף וקו-תחתי</div>
-
-          <label class="setup-label">שם מלא <span class="required">*</span></label>
-          <input type="text" name="full_name" class="setup-input"
-                 placeholder="לדוגמה: ד״ר ישראל כהן" required />
-
-          <label class="setup-label">מייל <span class="required">*</span></label>
-          <input type="email" name="email" class="setup-input" style="direction:ltr;text-align:left;"
-                 placeholder="doctor@example.com" required />
-
-          <label class="setup-label">טלפון <span class="required">*</span></label>
-          <input type="tel" name="phone" class="setup-input" style="direction:ltr;text-align:left;"
-                 placeholder="050-1234567" required />
-
-          <label class="setup-label">סיסמא <span class="required">*</span></label>
-          <input type="password" name="password" class="setup-input"
-                 placeholder="לפחות 6 תווים" required />
-
-          <label class="setup-label">אימות סיסמא <span class="required">*</span></label>
-          <input type="password" name="confirm" class="setup-input"
-                 placeholder="הזן שוב" required />
-
-          <button type="submit" class="setup-btn setup-submit-btn">
-            <span class="btn-label">צור חשבון והתחל</span>
-            <span class="btn-loading hidden">
-              <span class="setup-spinner"></span>
-              יוצר חשבון...
-            </span>
-          </button>
-        </form>
+      <div class="setup-info">
+        <strong>נדרש חיבור לאינטרנט</strong> לחיבור חשבון קיים.<br>
+        לאחר החיבור, תוכל להתחבר גם ללא אינטרנט.
       </div>
+      <p style="font-size:0.82rem;color:#64748b;margin-bottom:20px;text-align:right;">
+        אם כבר יש לך חשבון (למשל ממחשב אחר), הזן את שם המשתמש והסיסמא שהגדרת.
+      </p>
+      <form method="post" autocomplete="off">
+        <input type="hidden" name="mode" value="existing" />
+        <label class="setup-label">שם משתמש <span class="required">*</span></label>
+        <input type="text" name="username" class="setup-input" style="font-family:monospace;direction:ltr;text-align:left;"
+               placeholder="שם המשתמש שהגדרת" required autocomplete="off"
+               pattern="[a-zA-Z0-9_\-]+" minlength="3" maxlength="40" />
 
-      <!-- ====== Existing Account Tab ====== -->
-      <div class="tab-pane fade" id="existingAccount" role="tabpanel">
-        <div class="setup-info">
-          <strong>נדרש חיבור לאינטרנט</strong> לחיבור חשבון קיים.<br>
-          לאחר החיבור, תוכל להתחבר גם ללא אינטרנט.
-        </div>
-        <p style="font-size:0.82rem;color:#64748b;margin-bottom:20px;text-align:right;">
-          אם כבר יש לך חשבון (למשל ממחשב אחר), הזן את שם המשתמש והסיסמא שהגדרת.
-        </p>
-        <form method="post">
-          <input type="hidden" name="mode" value="existing" />
-          <label class="setup-label">שם משתמש <span class="required">*</span></label>
-          <input type="text" name="username" class="setup-input" style="font-family:monospace;direction:ltr;text-align:left;"
-                 placeholder="שם המשתמש שהגדרת" required
-                 pattern="[a-zA-Z0-9_\-]+" minlength="3" maxlength="40" />
+        <label class="setup-label">סיסמא <span class="required">*</span></label>
+        <input type="password" name="password" class="setup-input"
+               placeholder="הסיסמא שהגדרת" required autocomplete="off" />
 
-          <label class="setup-label">סיסמא <span class="required">*</span></label>
-          <input type="password" name="password" class="setup-input"
-                 placeholder="הסיסמא שהגדרת" required />
+        <button type="submit" class="setup-btn setup-submit-btn">
+          <span class="btn-label">התחבר לחשבון קיים</span>
+          <span class="btn-loading hidden">
+            <span class="setup-spinner"></span>
+            מתחבר...
+          </span>
+        </button>
+      </form>
 
-          <button type="submit" class="setup-btn setup-submit-btn">
-            <span class="btn-label">התחבר לחשבון קיים</span>
-            <span class="btn-loading hidden">
-              <span class="setup-spinner"></span>
-              מתחבר...
-            </span>
-          </button>
-        </form>
+      <div class="setup-footer-link">
+        אין לך חשבון?
+        <a onclick="showRegister()">הירשם</a>
       </div>
     </div>
 
-    <div class="setup-footer-link">
-      כבר יש לך חשבון?
-      <a href="{{ url_for('login') }}">התחבר</a>
+    <!-- ====== Register View ====== -->
+    <div id="registerView" class="hidden">
+      <h1>הרשמה</h1>
+      <p class="setup-subtitle">צור חשבון חדש</p>
+
+      <div class="setup-info">
+        <strong>נדרש חיבור לאינטרנט</strong> להרשמה ראשונה.<br>
+        לאחר ההרשמה, תוכל להתחבר גם ללא אינטרנט.
+      </div>
+      <p style="font-size:0.82rem;color:#64748b;margin-bottom:20px;text-align:right;">
+        שם המשתמש חייב להיות ייחודי — ישמש כמזהה שלך במערכת.<br>
+        המטופלים יגיעו דרך:
+        <code>anonimusq.motiml77.workers.dev?doctor=<strong>[שם המשתמש]</strong></code>
+      </p>
+      <form method="post" autocomplete="off">
+        <input type="hidden" name="mode" value="register" />
+        <label class="setup-label">שם משתמש (לטיני, ללא רווחים) <span class="required">*</span></label>
+        <input type="text" name="username" class="setup-input" style="font-family:monospace;direction:ltr;text-align:left;"
+               placeholder="לדוגמה: dr-cohen" required autocomplete="off"
+               pattern="[a-zA-Z0-9_\-]+" minlength="3" maxlength="40" />
+        <div class="setup-hint">ניתן להשתמש באותיות לטיניות, ספרות, מקף וקו-תחתי</div>
+
+        <label class="setup-label">שם מלא <span class="required">*</span></label>
+        <input type="text" name="full_name" class="setup-input"
+               placeholder="לדוגמה: ד״ר ישראל כהן" required autocomplete="off" />
+
+        <label class="setup-label">מייל <span class="required">*</span></label>
+        <input type="email" name="email" class="setup-input" style="direction:ltr;text-align:left;"
+               placeholder="doctor@example.com" required autocomplete="off" />
+
+        <label class="setup-label">טלפון <span class="required">*</span></label>
+        <input type="tel" name="phone" class="setup-input" style="direction:ltr;text-align:left;"
+               placeholder="050-1234567" required autocomplete="off" />
+
+        <label class="setup-label">סיסמא <span class="required">*</span></label>
+        <input type="password" name="password" class="setup-input"
+               placeholder="לפחות 6 תווים" required autocomplete="new-password" />
+
+        <label class="setup-label">אימות סיסמא <span class="required">*</span></label>
+        <input type="password" name="confirm" class="setup-input"
+               placeholder="הזן שוב" required autocomplete="new-password" />
+
+        <button type="submit" class="setup-btn setup-submit-btn">
+          <span class="btn-label">צור חשבון והתחל</span>
+          <span class="btn-loading hidden">
+            <span class="setup-spinner"></span>
+            יוצר חשבון...
+          </span>
+        </button>
+      </form>
+
+      <div class="setup-footer-link">
+        יש לך חשבון?
+        <a onclick="showLogin()">התחבר</a>
+      </div>
     </div>
+
   </div>
 
   <!-- Secure connection footer -->
@@ -329,6 +304,15 @@
 </div>
 
 <script>
+  function showRegister() {
+    document.getElementById('loginView').classList.add('hidden');
+    document.getElementById('registerView').classList.remove('hidden');
+  }
+  function showLogin() {
+    document.getElementById('registerView').classList.add('hidden');
+    document.getElementById('loginView').classList.remove('hidden');
+  }
+
   document.querySelectorAll("form").forEach(function(form) {
     form.addEventListener("submit", function() {
       var btn = form.querySelector(".setup-submit-btn");
@@ -339,9 +323,9 @@
       }
     });
   });
+
   {% if switch_to_existing %}
-  var existingTab = document.querySelector('[data-bs-target="#existingAccount"]');
-  if (existingTab) { existingTab.click(); }
+  // If server says to show existing/login view — it's already default
   {% endif %}
 </script>
 {% endblock %}

@@ -264,12 +264,6 @@
         </div>
       </div>
 
-      <!-- Remember me -->
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;direction:rtl;">
-        <input type="checkbox" id="rememberMe" style="width:18px;height:18px;accent-color:#2bb66e;cursor:pointer;" />
-        <label for="rememberMe" style="font-size:0.85rem;color:#64748b;cursor:pointer;margin:0;">זכור אותי</label>
-      </div>
-
       <!-- Submit button -->
       <button type="submit" id="loginBtn" class="login-btn">
         <span id="btnText">כניסה</span>
@@ -298,18 +292,8 @@
 </div>
 
 <script>
-// Remember me — restore saved credentials
-(function() {
-  var saved = localStorage.getItem('clinicTor_remember');
-  if (saved) {
-    try {
-      var data = JSON.parse(saved);
-      document.getElementById('usernameInput').value = data.u || '';
-      document.getElementById('pwInput').value = data.p || '';
-      document.getElementById('rememberMe').checked = true;
-    } catch(e) {}
-  }
-})();
+// Clear any old saved credentials
+localStorage.removeItem('clinicTor_remember');
 
 // Toggle password visibility
 document.getElementById('togglePw').addEventListener('click', function() {
@@ -324,17 +308,8 @@ document.getElementById('togglePw').addEventListener('click', function() {
   }
 });
 
-// Submit spinner + remember me
+// Submit spinner
 document.getElementById('loginForm').addEventListener('submit', function() {
-  // Save or clear credentials based on checkbox
-  if (document.getElementById('rememberMe').checked) {
-    localStorage.setItem('clinicTor_remember', JSON.stringify({
-      u: document.getElementById('usernameInput').value,
-      p: document.getElementById('pwInput').value
-    }));
-  } else {
-    localStorage.removeItem('clinicTor_remember');
-  }
   var btn = document.getElementById('loginBtn');
   btn.disabled = true;
   document.getElementById('btnText').classList.add('hidden');
