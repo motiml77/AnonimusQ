@@ -7,6 +7,7 @@ import re
 import shutil
 import bcrypt
 from datetime import datetime
+import crypto_utils
 
 import sys as _sys
 
@@ -488,6 +489,103 @@ def set_cached_license(trial_start_date: str, licensed: bool):
 
 
 # ========================
+# Patients – PII Encryption Helpers
+# ========================
+
+_PII_FIELDS = ("name", "phone", "email", "notes")
+_ENC_PREFIX = "ENC:"  # prefix to distinguish encrypted values from plaintext
+
+
+def _encrypt_pii(value: str) -> str:
+    """Encrypt a PII field value. Returns prefixed ciphertext, or plaintext if crypto not ready."""
+    if not value or not crypto_utils.is_ready():
+        return value
+    if value.startswith(_ENC_PREFIX):
+        return value  # already encrypted
+    return _ENC_PREFIX + crypto_utils.encrypt(value)
+
+
+def _decrypt_pii(value: str) -> str:
+    """Decrypt a PII field value. Returns plaintext, or the original if not encrypted."""
+    if not value or not value.startswith(_ENC_PREFIX):
+        return value  # plaintext — not yet encrypted
+    if not crypto_utils.is_ready():
+        return "[נעול]"
+    return crypto_utils.decrypt(value[len(_ENC_PREFIX):])
+
+
+def _decrypt_patient_row(row: dict) -> dict:
+    """Decrypt all PII fields in a patient row."""
+    for field in _PII_FIELDS:
+        if field in row and row[field]:
+            row[field] = _decrypt_pii(row[field])
+    return row
+
+
+def reencrypt_all_patients(old_fernet, new_fernet):
+    """Re-encrypt all patient PII when password changes.
+    Decrypts with old key, re-encrypts with new key.
+    """
+    from cryptography.fernet import InvalidToken
+    conn = _get_conn()
+    rows = conn.execute("SELECT id, name, phone, email, notes FROM patients").fetchall()
+    migrated = 0
+    for r in rows:
+        updates = {}
+        for field in _PII_FIELDS:
+            val = r[field] if field in r.keys() else ""
+            if val and val.startswith(_ENC_PREFIX):
+                # Decrypt with old key
+                try:
+                    plaintext = old_fernet.decrypt(val[len(_ENC_PREFIX):].encode("utf-8")).decode("utf-8")
+                except (InvalidToken, Exception):
+                    continue  # can't decrypt, skip
+                # Re-encrypt with new key
+                new_cipher = new_fernet.encrypt(plaintext.encode("utf-8")).decode("utf-8")
+                updates[field] = _ENC_PREFIX + new_cipher
+        if updates:
+            set_clause = ", ".join(f"{k}=?" for k in updates)
+            conn.execute(
+                f"UPDATE patients SET {set_clause} WHERE id=?",
+                (*updates.values(), r["id"]),
+            )
+            migrated += 1
+    if migrated:
+        conn.commit()
+        print(f"  [DB] Re-encrypted PII for {migrated} patients (password change)")
+    conn.close()
+    return migrated
+
+
+def encrypt_existing_patients():
+    """One-time migration: encrypt plaintext PII in existing patient records.
+    Called after login when crypto_utils is ready.
+    """
+    if not crypto_utils.is_ready():
+        return
+    conn = _get_conn()
+    rows = conn.execute("SELECT id, name, phone, email, notes FROM patients").fetchall()
+    migrated = 0
+    for r in rows:
+        updates = {}
+        for field in _PII_FIELDS:
+            val = r[field] if field in r.keys() else ""
+            if val and not val.startswith(_ENC_PREFIX):
+                updates[field] = _encrypt_pii(val)
+        if updates:
+            set_clause = ", ".join(f"{k}=?" for k in updates)
+            conn.execute(
+                f"UPDATE patients SET {set_clause} WHERE id=?",
+                (*updates.values(), r["id"]),
+            )
+            migrated += 1
+    if migrated:
+        conn.commit()
+        print(f"  [DB] Encrypted PII for {migrated} existing patients")
+    conn.close()
+
+
+# ========================
 # Patients
 # ========================
 
@@ -495,20 +593,34 @@ def get_patients() -> list:
     """Return active patients (active=1 or column missing — treated as 1)."""
     conn = _get_conn()
     rows = conn.execute(
-        "SELECT * FROM patients WHERE COALESCE(active,1)=1 ORDER BY name COLLATE NOCASE"
+        "SELECT * FROM patients WHERE COALESCE(active,1)=1"
     ).fetchall()
     conn.close()
-    return [dict(r) for r in rows]
+    result = [_decrypt_patient_row(dict(r)) for r in rows]
+    result.sort(key=lambda p: (p.get("name") or "").lower())
+    return result
+
+
+def get_patient_by_id(patient_id: int) -> dict:
+    """Return a single patient by ID, or None."""
+    conn = _get_conn()
+    row = conn.execute("SELECT * FROM patients WHERE id=?", (patient_id,)).fetchone()
+    conn.close()
+    if not row:
+        return None
+    return _decrypt_patient_row(dict(row))
 
 
 def get_inactive_patients() -> list:
     """Return inactive patients (active=0)."""
     conn = _get_conn()
     rows = conn.execute(
-        "SELECT * FROM patients WHERE COALESCE(active,1)=0 ORDER BY name COLLATE NOCASE"
+        "SELECT * FROM patients WHERE COALESCE(active,1)=0"
     ).fetchall()
     conn.close()
-    return [dict(r) for r in rows]
+    result = [_decrypt_patient_row(dict(r)) for r in rows]
+    result.sort(key=lambda p: (p.get("name") or "").lower())
+    return result
 
 
 def set_patient_active(patient_id: int, active: int) -> bool:
@@ -548,7 +660,8 @@ def add_patient(name: str, phone: str = "", notes: str = "",
             anonymous_id = _unique_patient_id(conn, extra_check=firebase_check)
         conn.execute(
             "INSERT INTO patients (name, anonymous_id, phone, notes, price, is_anonymous, email) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (name, anonymous_id, phone, notes, float(price or 0), int(is_anonymous), email),
+            (_encrypt_pii(name), anonymous_id, _encrypt_pii(phone),
+             _encrypt_pii(notes), float(price or 0), int(is_anonymous), _encrypt_pii(email)),
         )
         conn.commit()
         conn.close()
@@ -564,7 +677,8 @@ def update_patient(patient_id: int, name: str, phone: str, notes: str,
         conn = _get_conn()
         conn.execute(
             "UPDATE patients SET name=?, phone=?, notes=?, price=?, is_anonymous=?, email=? WHERE id=?",
-            (name, phone, notes, float(price or 0), int(is_anonymous), email, patient_id),
+            (_encrypt_pii(name), _encrypt_pii(phone), _encrypt_pii(notes),
+             float(price or 0), int(is_anonymous), _encrypt_pii(email), patient_id),
         )
         conn.commit()
         conn.close()
@@ -597,7 +711,7 @@ def get_uuid_map() -> dict:
     conn = _get_conn()
     rows = conn.execute("SELECT anonymous_id, name FROM patients").fetchall()
     conn.close()
-    uuid_map = {r["anonymous_id"]: r["name"] for r in rows}
+    uuid_map = {r["anonymous_id"]: _decrypt_pii(r["name"]) for r in rows}
     uuid_map[WALKIN_ID] = "תור מזדמן"   # always present, never overwritten by a real patient
     return uuid_map
 
@@ -1493,13 +1607,15 @@ def delete_legacy_fernet_key():
 # ── Bulk data access for migration / new-device sync ─────────────────────────
 
 def get_all_patients_for_sync() -> list:
-    """Return ALL patients (active + inactive) with fields needed for encryption sync."""
+    """Return ALL patients (active + inactive) with fields needed for encryption sync.
+    Returns DECRYPTED values so they can be re-encrypted for Firebase.
+    """
     conn = _get_conn()
     rows = conn.execute(
         "SELECT id, anonymous_id, name, phone, notes, price, is_anonymous, active FROM patients"
     ).fetchall()
     conn.close()
-    return [dict(r) for r in rows]
+    return [_decrypt_patient_row(dict(r)) for r in rows]
 
 
 def get_all_treatment_notes_for_sync() -> list:
@@ -1666,18 +1782,13 @@ def bulk_save_referrals_from_firebase(referrals_data: list):
 # Patient Detail Lookup
 # ========================
 
-def get_patient_by_id(patient_id: int):
-    conn = _get_conn()
-    row = conn.execute("SELECT * FROM patients WHERE id=?", (patient_id,)).fetchone()
-    conn.close()
-    return dict(row) if row else None
-
-
 def get_patient_by_anonymous_id(anonymous_id: str):
     conn = _get_conn()
     row = conn.execute("SELECT * FROM patients WHERE anonymous_id=?", (anonymous_id,)).fetchone()
     conn.close()
-    return dict(row) if row else None
+    if not row:
+        return None
+    return _decrypt_patient_row(dict(row))
 
 
 # ========================
@@ -1721,6 +1832,15 @@ def get_treatment_notes(patient_id: int) -> list:
     ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+def get_treatment_note_by_id(note_id: int):
+    """Return a single treatment note by ID, or None if not found."""
+    conn = _get_conn()
+    _ensure_treatment_notes_table(conn)
+    row = conn.execute("SELECT * FROM treatment_notes WHERE id=?", (note_id,)).fetchone()
+    conn.close()
+    return dict(row) if row else None
 
 
 def update_treatment_note(note_id: int, content: str) -> dict:
@@ -2113,6 +2233,27 @@ def clear_stale_sync_operations(max_retries: int = 50):
     _ensure_sync_queue_table(conn)
     conn.execute(
         "DELETE FROM firebase_sync_queue WHERE retries >= ?", (max_retries,)
+    )
+    conn.commit()
+    conn.close()
+
+
+def clear_data_sync_operations():
+    """Remove queued operations that a full password-change re-push already covers.
+    Called during password change to avoid redundant/stale pushes.
+    Keeps appointment-level operations (approve, reject, mark, etc.) intact.
+    """
+    redundant_ops = (
+        "register_patient", "update_patient", "set_anonymous",
+        "push_note", "delete_note",
+        "sync_emergency_contacts", "sync_referral",
+    )
+    conn = _get_conn()
+    _ensure_sync_queue_table(conn)
+    placeholders = ",".join("?" for _ in redundant_ops)
+    conn.execute(
+        f"DELETE FROM firebase_sync_queue WHERE operation IN ({placeholders})",
+        redundant_ops,
     )
     conn.commit()
     conn.close()

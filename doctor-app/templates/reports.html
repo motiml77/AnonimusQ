@@ -94,7 +94,7 @@
 {% endblock %}
 
 {% block scripts %}
-<script>
+<script nonce="{{ g.csp_nonce }}">
 const APPOINTMENTS = {{ appointments_json|safe }};
 const ANON_IDS = {{ anonymous_ids_json|safe }};
 const PAYMENT_LABELS = { bit: 'ביט', paybox: 'פייבוקס', cash: 'מזומן', bank: 'העברה בנקאית' };

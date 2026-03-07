@@ -305,6 +305,44 @@ def push_availability(settings: dict) -> dict:
         return {"ok": False, "error": str(e)}
 
 
+def delete_patient_full(anonymous_id: str) -> dict:
+    """Delete ALL data for a patient from Firebase: patient doc, appointments, notes, contacts."""
+    if not _db or not _username:
+        return {"ok": False, "error": "Firebase לא מחובר"}
+    try:
+        doctor_ref = _doctor()
+        deleted_count = 0
+
+        # 1. Delete patient document
+        doctor_ref.collection("patients").document(anonymous_id).delete()
+        deleted_count += 1
+
+        # 2. Delete all appointments for this patient
+        appts = doctor_ref.collection("appointments") \
+            .where("anonymousId", "==", anonymous_id).stream()
+        for appt in appts:
+            appt.reference.delete()
+            deleted_count += 1
+
+        # 3. Delete treatment notes (subcollection under patient)
+        notes = doctor_ref.collection("patients").document(anonymous_id) \
+            .collection("notes").stream()
+        for note in notes:
+            note.reference.delete()
+            deleted_count += 1
+
+        # 4. Delete emergency contacts (subcollection under patient)
+        contacts = doctor_ref.collection("patients").document(anonymous_id) \
+            .collection("emergency_contacts").stream()
+        for contact in contacts:
+            contact.reference.delete()
+            deleted_count += 1
+
+        return {"ok": True, "deleted": deleted_count}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
 def patient_id_exists(anonymous_id: str) -> bool:
     """Returns True if the anonymous_id is already registered in Firestore."""
     if not _db or not _username:

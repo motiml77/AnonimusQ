@@ -335,9 +335,9 @@ def add_security_headers(response):
         "default-src 'self'; "
         f"script-src 'self' 'nonce-{nonce}' https://cdn.jsdelivr.net; "
         "script-src-attr 'unsafe-inline'; "
-        "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+        "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; "
         "img-src 'self' data:; "
-        "font-src 'self' https://cdn.jsdelivr.net; "
+        "font-src 'self' data: https://cdn.jsdelivr.net https://fonts.gstatic.com; "
         "connect-src 'self'; "
     )
     response.headers["Content-Security-Policy"] = csp
@@ -1127,22 +1127,28 @@ def patients_add():
                             is_anonymous=is_anonymous, email=email)
     if result["ok"]:
         anon_id = result["anonymous_id"]
-        # Queue Firebase sync in background
-        patient_payload = {
+        # Payload for sync queue — NO PII, only IDs + non-sensitive fields.
+        # At flush time the flusher re-reads patient from DB (auto-decrypts).
+        queue_payload = {
+            "anonymous_id": anon_id, "price": price,
+            "is_anonymous": is_anonymous,
+        }
+        # Immediate push needs PII (encrypted on the fly, never persisted)
+        immediate_payload = {
             "anonymous_id": anon_id, "name": name, "phone": phone,
-            "notes": notes, "price": price, "is_anonymous": is_anonymous,
+            "notes": notes,
         }
         def _sync_patient_bg():
             try:
                 if firebase_sync.is_connected():
                     firebase_sync.register_patient(anon_id, price=price, is_anonymous=bool(is_anonymous))
-                    _push_encrypted_patient_bg(patient_payload)
+                    _push_encrypted_patient_bg(immediate_payload)
                 else:
-                    # Offline — queue for later
-                    db.enqueue_firebase_sync(anon_id, "register_patient", payload=patient_payload)
+                    # Offline — queue for later (PII-free)
+                    db.enqueue_firebase_sync(anon_id, "register_patient", payload=queue_payload)
             except Exception:
-                # Failed — queue for retry
-                db.enqueue_firebase_sync(anon_id, "register_patient", payload=patient_payload)
+                # Failed — queue for retry (PII-free)
+                db.enqueue_firebase_sync(anon_id, "register_patient", payload=queue_payload)
         threading.Thread(target=_sync_patient_bg, daemon=True).start()
 
         if is_ajax:
@@ -1175,10 +1181,10 @@ def patients_update(patient_id):
     if result["ok"]:
         patient = db.get_patient_by_id(patient_id)
         if patient:
-            patient_payload = {
+            # Queue payload — NO PII, only IDs + non-sensitive fields
+            queue_payload = {
                 "anonymous_id": patient["anonymous_id"],
-                "name": name, "phone": phone, "notes": notes,
-                "price": price, "is_anonymous": is_anonymous, "email": email,
+                "price": price, "is_anonymous": is_anonymous,
             }
 
             def _bg_update_patient():
@@ -1188,9 +1194,9 @@ def patients_update(patient_id):
                         _push_encrypted_patient_bg({"anonymous_id": patient["anonymous_id"],
                                                     "name": name, "phone": phone, "notes": notes})
                     else:
-                        db.enqueue_firebase_sync(patient["anonymous_id"], "update_patient", payload=patient_payload)
+                        db.enqueue_firebase_sync(patient["anonymous_id"], "update_patient", payload=queue_payload)
                 except Exception:
-                    db.enqueue_firebase_sync(patient["anonymous_id"], "update_patient", payload=patient_payload)
+                    db.enqueue_firebase_sync(patient["anonymous_id"], "update_patient", payload=queue_payload)
 
             threading.Thread(target=_bg_update_patient, daemon=True).start()
     flash("פרטי המטופל עודכנו" if result["ok"] else result.get("error", "שגיאה"),
@@ -1333,6 +1339,13 @@ def api_add_note(patient_id):
         anon_id = patient["anonymous_id"]
         note_id_str = str(result["id"])
 
+        # Queue payload — NO content PII, only IDs. Content re-read from DB at flush.
+        note_queue_payload = {
+            "anonymous_id": anon_id, "note_id": note_id_str,
+            "note_type": note_type,
+            "appt_date": appt_date, "appt_time": appt_time,
+        }
+
         def _bg_push_note():
             try:
                 if firebase_sync.is_connected():
@@ -1342,17 +1355,9 @@ def api_add_note(patient_id):
                     )
                     db.mark_notes_synced([result["id"]])
                 else:
-                    db.enqueue_firebase_sync(note_id_str, "push_note", payload={
-                        "anonymous_id": anon_id, "note_id": note_id_str,
-                        "content": content, "note_type": note_type,
-                        "appt_date": appt_date, "appt_time": appt_time,
-                    })
+                    db.enqueue_firebase_sync(note_id_str, "push_note", payload=note_queue_payload)
             except Exception:
-                db.enqueue_firebase_sync(note_id_str, "push_note", payload={
-                    "anonymous_id": anon_id, "note_id": note_id_str,
-                    "content": content, "note_type": note_type,
-                    "appt_date": appt_date, "appt_time": appt_time,
-                })
+                db.enqueue_firebase_sync(note_id_str, "push_note", payload=note_queue_payload)
 
         threading.Thread(target=_bg_push_note, daemon=True).start()
     return jsonify(result)
@@ -1375,6 +1380,13 @@ def api_update_note(patient_id, note_id):
             a_time = data.get("appointmentTime")
             note_id_str = str(note_id)
 
+            # Queue payload — NO content PII
+            note_q = {
+                "anonymous_id": anon_id, "note_id": note_id_str,
+                "note_type": n_type,
+                "appt_date": a_date, "appt_time": a_time,
+            }
+
             def _bg_update_note():
                 try:
                     if firebase_sync.is_connected():
@@ -1384,17 +1396,9 @@ def api_update_note(patient_id, note_id):
                         )
                         db.mark_notes_synced([note_id])
                     else:
-                        db.enqueue_firebase_sync(note_id_str, "push_note", payload={
-                            "anonymous_id": anon_id, "note_id": note_id_str,
-                            "content": content, "note_type": n_type,
-                            "appt_date": a_date, "appt_time": a_time,
-                        })
+                        db.enqueue_firebase_sync(note_id_str, "push_note", payload=note_q)
                 except Exception:
-                    db.enqueue_firebase_sync(note_id_str, "push_note", payload={
-                        "anonymous_id": anon_id, "note_id": note_id_str,
-                        "content": content, "note_type": n_type,
-                        "appt_date": a_date, "appt_time": a_time,
-                    })
+                    db.enqueue_firebase_sync(note_id_str, "push_note", payload=note_q)
 
             threading.Thread(target=_bg_update_note, daemon=True).start()
     return jsonify(result)
@@ -1543,6 +1547,13 @@ def api_upsert_referral(patient_id):
     if result["ok"]:
         anon_id = patient["anonymous_id"]
 
+        # Queue payload — NO broker_name PII, re-read from DB at flush
+        ref_q = {
+            "anonymous_id": anon_id, "patient_id": patient_id,
+            "percentage": percentage, "total_sessions": total_sessions,
+            "enabled": True,
+        }
+
         def _bg_sync_ref():
             try:
                 if firebase_sync.is_connected():
@@ -1554,17 +1565,9 @@ def api_upsert_referral(patient_id):
                         "enabled": True,
                     })
                 else:
-                    db.enqueue_firebase_sync(anon_id, "sync_referral", payload={
-                        "anonymous_id": anon_id, "broker_name": broker_name,
-                        "percentage": percentage, "total_sessions": total_sessions,
-                        "enabled": True,
-                    })
+                    db.enqueue_firebase_sync(anon_id, "sync_referral", payload=ref_q)
             except Exception:
-                db.enqueue_firebase_sync(anon_id, "sync_referral", payload={
-                    "anonymous_id": anon_id, "broker_name": broker_name,
-                    "percentage": percentage, "total_sessions": total_sessions,
-                    "enabled": True,
-                })
+                db.enqueue_firebase_sync(anon_id, "sync_referral", payload=ref_q)
 
         threading.Thread(target=_bg_sync_ref, daemon=True).start()
     return jsonify(result)
@@ -1818,6 +1821,9 @@ def change_password():
         if new_login["ok"]:
             session["firebase_id_token"] = new_login.get("idToken", "")
 
+        # ── Update recovery token in Firebase for admin password recovery ──
+        _save_recovery_password(new_pw)
+
         # ── Save old Fernet for re-encryption ──
         old_fernet = crypto_utils.get_cached_fernet()
 
@@ -1891,6 +1897,11 @@ def change_password():
         # ── Re-encrypt patient PII in local SQLite ──
         if old_fernet:
             db.reencrypt_all_patients(old_fernet, new_fernet)
+
+        # ── Clear redundant sync queue entries ──
+        # Password change re-pushes ALL data to Firebase, so pending
+        # patient/note/contact operations are now redundant.
+        db.clear_data_sync_operations()
 
         # ── Switch to new key locally ──
         crypto_utils.set_cached_fernet(new_fernet)
@@ -2677,13 +2688,23 @@ def _process_sync_queue():
 
             elif operation == "register_patient":
                 anon_id = op["appointment_id"]
-                firebase_sync.register_patient(
-                    anon_id,
-                    price=payload.get("price", 0),
-                    is_anonymous=bool(payload.get("is_anonymous", 0)),
-                )
-                _push_encrypted_patient_bg(payload)
-                success = True
+                # Re-read patient from DB (auto-decrypts with current key)
+                p = db.get_patient_by_anonymous_id(anon_id)
+                if not p:
+                    success = True  # patient was deleted, nothing to register
+                else:
+                    firebase_sync.register_patient(
+                        anon_id,
+                        price=payload.get("price", float(p.get("price", 0))),
+                        is_anonymous=bool(payload.get("is_anonymous", p.get("is_anonymous", 0))),
+                    )
+                    _push_encrypted_patient_bg({
+                        "anonymous_id": anon_id,
+                        "name": p.get("name", ""),
+                        "phone": p.get("phone", ""),
+                        "notes": p.get("notes", ""),
+                    })
+                    success = True
 
             elif operation == "delete_patient":
                 anon_id = op["appointment_id"]
@@ -2728,12 +2749,22 @@ def _process_sync_queue():
 
             elif operation == "update_patient":
                 anon_id = payload.get("anonymous_id") or op["appointment_id"]
-                firebase_sync.update_patient_price(
-                    anon_id, payload.get("price", 0),
-                    is_anonymous=bool(payload.get("is_anonymous", 0)),
-                )
-                _push_encrypted_patient_bg(payload)
-                success = True
+                # Re-read patient from DB (auto-decrypts with current key)
+                p = db.get_patient_by_anonymous_id(anon_id)
+                if not p:
+                    success = True  # patient was deleted
+                else:
+                    firebase_sync.update_patient_price(
+                        anon_id, payload.get("price", float(p.get("price", 0))),
+                        is_anonymous=bool(payload.get("is_anonymous", p.get("is_anonymous", 0))),
+                    )
+                    _push_encrypted_patient_bg({
+                        "anonymous_id": anon_id,
+                        "name": p.get("name", ""),
+                        "phone": p.get("phone", ""),
+                        "notes": p.get("notes", ""),
+                    })
+                    success = True
 
             elif operation == "set_anonymous":
                 anon_id = payload.get("anonymous_id") or op["appointment_id"]
@@ -2744,17 +2775,25 @@ def _process_sync_queue():
                 success = True
 
             elif operation == "push_note":
-                encrypted = db.encrypt_note(payload["content"])
-                firebase_sync.push_treatment_note(
-                    payload["anonymous_id"], payload["note_id"],
-                    encrypted, payload.get("note_type", "freeform"),
-                    payload.get("appt_date"), payload.get("appt_time"),
-                )
-                try:
-                    db.mark_notes_synced([int(payload["note_id"])])
-                except Exception:
-                    pass
-                success = True
+                note_id_str = payload.get("note_id", op["appointment_id"])
+                # Re-read note content from DB (uses current encryption key)
+                note = db.get_treatment_note_by_id(int(note_id_str))
+                if not note:
+                    success = True  # note was deleted
+                else:
+                    encrypted = db.encrypt_note(note["content"])
+                    firebase_sync.push_treatment_note(
+                        payload.get("anonymous_id", note.get("anonymous_id", "")),
+                        note_id_str, encrypted,
+                        payload.get("note_type", note.get("note_type", "freeform")),
+                        payload.get("appt_date", note.get("appointment_date")),
+                        payload.get("appt_time", note.get("appointment_time")),
+                    )
+                    try:
+                        db.mark_notes_synced([int(note_id_str)])
+                    except Exception:
+                        pass
+                    success = True
 
             elif operation == "delete_note":
                 firebase_sync.delete_treatment_note_firebase(
@@ -2774,13 +2813,18 @@ def _process_sync_queue():
                 if payload.get("enabled") is False:
                     firebase_sync.sync_referral_agreement(anon_id, {"enabled": False})
                 else:
-                    encrypted_broker = db.encrypt_note(payload.get("broker_name", ""))
-                    firebase_sync.sync_referral_agreement(anon_id, {
-                        "encryptedBrokerName": encrypted_broker,
-                        "percentage": payload.get("percentage", 0),
-                        "totalSessions": payload.get("total_sessions", 0),
-                        "enabled": True,
-                    })
+                    # Re-read referral from DB to get broker_name (no PII in queue)
+                    p_id = payload.get("patient_id")
+                    ref = db.get_referral_agreement(p_id) if p_id else None
+                    if ref:
+                        encrypted_broker = db.encrypt_note(ref.get("broker_name", ""))
+                        firebase_sync.sync_referral_agreement(anon_id, {
+                            "encryptedBrokerName": encrypted_broker,
+                            "percentage": ref.get("percentage", payload.get("percentage", 0)),
+                            "totalSessions": ref.get("total_sessions", payload.get("total_sessions", 0)),
+                            "enabled": True,
+                        })
+                    # else: referral was deleted, skip
                 success = True
 
             elif operation == "push_availability":

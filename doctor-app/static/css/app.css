@@ -389,6 +389,11 @@ h4 { font-size: 1.25rem; }
   font-family: 'Inter', 'Segoe UI', sans-serif;
   transition: all 0.15s;
 }
+/* Navigation arrow icons – ensure proper size */
+.fc .fc-button .fc-icon {
+  font-size: 1.1rem !important;
+  vertical-align: middle;
+}
 .fc .fc-button-primary {
   background-color: var(--clr-primary) !important;
   border-color: var(--clr-primary) !important;

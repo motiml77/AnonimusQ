@@ -194,7 +194,7 @@
         <small class="text-muted mt-1 d-block">אל תסגור את הדפדפן ואל תנתק את החיבור לאינטרנט</small>
       </div>
     </form>
-    <script>
+    <script nonce="{{ g.csp_nonce }}">
     document.getElementById('changePasswordForm').addEventListener('submit', function() {
       document.getElementById('changePwBtn').disabled = true;
       document.getElementById('changePwBtn').textContent = 'מעדכן...';
@@ -274,7 +274,7 @@
 {% endblock %}
 
 {% block scripts %}
-<script>
+<script nonce="{{ g.csp_nonce }}">
 // License info
 fetch('/api/license-info').then(function(r) { return r.json(); }).then(function(data) {
   var body = document.getElementById('licenseBody');

@@ -85,8 +85,8 @@
 
 </div>
 
-<script src="{{ url_for('static', filename='vendor/bootstrap.bundle.min.js') }}"></script>
-<script>
+<script nonce="{{ g.csp_nonce }}" src="{{ url_for('static', filename='vendor/bootstrap.bundle.min.js') }}"></script>
+<script nonce="{{ g.csp_nonce }}">
 // Auto-dismiss flash alerts after 20 seconds
 document.querySelectorAll('.alert-dismissible').forEach(function(alert) {
   setTimeout(function() {
@@ -105,7 +105,7 @@ document.addEventListener('contextmenu', function (e) {
 setInterval(function() { fetch('/api/heartbeat').catch(function(){}); }, 10000);
 </script>
 {% if session.authenticated %}
-<script>
+<script nonce="{{ g.csp_nonce }}">
 // Auto-update: check for available updates
 (function() {
   fetch('/api/update-check').then(function(r) { return r.json(); }).then(function(data) {

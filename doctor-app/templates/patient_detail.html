@@ -533,7 +533,7 @@
 {% endblock %}
 
 {% block scripts %}
-<script>
+<script nonce="{{ g.csp_nonce }}">
 var PATIENT_ID = {{ patient.id }};
 var PATIENT_ANON_ID = '{{ patient.anonymous_id }}';
 var PATIENT_PRICE = {{ patient.price or 0 }};

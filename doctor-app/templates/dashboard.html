@@ -361,13 +361,13 @@
 {% endblock %}
 
 {% block scripts %}
-<script>
+<script nonce="{{ g.csp_nonce }}">
 var DEFAULT_DURATION = {{ default_duration }};
 var AVAILABILITY = {{ availability_json|safe }};
 var IS_OFFLINE = {{ 'true' if demo_mode else 'false' }};
 var ANON_IDS = {{ anonymous_ids_json|safe }};
 </script>
-<script src="{{ url_for('static', filename='vendor/fullcalendar.min.js') }}"></script>
-<script src="{{ url_for('static', filename='vendor/fullcalendar-he.min.js') }}"></script>
-<script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+<script nonce="{{ g.csp_nonce }}" src="{{ url_for('static', filename='vendor/fullcalendar.min.js') }}"></script>
+<script nonce="{{ g.csp_nonce }}" src="{{ url_for('static', filename='vendor/fullcalendar-he.min.js') }}"></script>
+<script nonce="{{ g.csp_nonce }}" src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
 {% endblock %}

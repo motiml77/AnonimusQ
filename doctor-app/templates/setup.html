@@ -303,7 +303,7 @@
   </div>
 </div>
 
-<script>
+<script nonce="{{ g.csp_nonce }}">
   function showRegister() {
     document.getElementById('loginView').classList.add('hidden');
     document.getElementById('registerView').classList.remove('hidden');

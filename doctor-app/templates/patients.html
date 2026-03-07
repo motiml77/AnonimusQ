@@ -284,18 +284,27 @@
 <div class="modal fade" id="deleteModal" tabindex="-1">
   <div class="modal-dialog">
     <div class="modal-content">
-      <div class="modal-header">
-        <h5 class="modal-title text-danger">מחיקת מטופל</h5>
+      <div class="modal-header bg-danger bg-opacity-10">
+        <h5 class="modal-title text-danger">&#9888; מחיקת מטופל לצמיתות</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <form method="post" id="deleteForm" action="">
         <div class="modal-body">
-          <p>האם למחוק את <strong id="deleteName"></strong>?</p>
-          <p class="text-danger small">פעולה זו בלתי הפיכה. תורים קיימים ב-Firebase לא יושפעו.</p>
+          <p class="fw-bold fs-5 text-center mb-3">האם למחוק את <span class="text-danger" id="deleteName"></span>?</p>
+          <div class="alert alert-danger py-2">
+            <p class="mb-1 fw-semibold">&#9888; כל המידע הבא יימחק לצמיתות:</p>
+            <ul class="mb-0 small">
+              <li>פרטי המטופל (שם, טלפון, אימייל, הערות)</li>
+              <li>כל התורים של המטופל ב-Firebase</li>
+              <li>הערות טיפול ואנשי קשר לחירום</li>
+              <li>המזהה האנונימי - המטופל לא יוכל להתחבר יותר</li>
+            </ul>
+          </div>
+          <p class="text-danger small fw-bold text-center mb-0">&#128683; פעולה זו בלתי הפיכה ולא ניתנת לשחזור!</p>
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">ביטול</button>
-          <button type="submit" class="btn btn-danger">מחק</button>
+          <button type="submit" class="btn btn-danger">&#128465; מחק הכל לצמיתות</button>
         </div>
       </form>
     </div>
@@ -304,7 +313,7 @@
 {% endblock %}
 
 {% block scripts %}
-<script>
+<script nonce="{{ g.csp_nonce }}">
 // ─── Patient search/filter ────────────────────────────────────────────────
 function filterPatients(query) {
   var q = query.trim().toLowerCase();
