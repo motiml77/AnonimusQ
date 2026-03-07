@@ -205,20 +205,20 @@
 
           <div class="mb-3">
             <label class="form-label fw-semibold mb-1">שם מלא <span class="text-danger">*</span></label>
-            <input type="text" name="name" id="addNameInput" class="form-control" required autocomplete="off" />
+            <input type="text" name="name" id="addNameInput" class="form-control" required autocomplete="one-time-code" />
           </div>
           <div class="mb-1">
             <label class="form-label fw-semibold mb-1">טלפון אישי</label>
-            <input type="tel" name="phone" class="form-control" placeholder="050-0000000" autocomplete="off" />
+            <input type="tel" name="phone" class="form-control" placeholder="050-0000000" autocomplete="one-time-code" />
           </div>
           <div class="mb-1">
             <label class="form-label fw-semibold mb-1">אימייל</label>
-            <input type="email" name="email" class="form-control" placeholder="example@email.com" dir="ltr" autocomplete="off" />
+            <input type="email" name="email" class="form-control" placeholder="example@email.com" dir="ltr" autocomplete="one-time-code" />
           </div>
           <div class="mb-1">
             <label class="form-label fw-semibold mb-1">מחיר (₪)</label>
             <input type="number" name="price" class="form-control" min="0" step="any"
-                   placeholder="ברירת מחדל מהגדרות" autocomplete="off" />
+                   placeholder="ברירת מחדל מהגדרות" autocomplete="one-time-code" />
           </div>
           <div class="form-check mt-2">
             <input type="checkbox" name="is_anonymous" id="addAnonymous" class="form-check-input" />
@@ -360,8 +360,85 @@ document.getElementById('addModal').addEventListener('show.bs.modal', async () =
   document.getElementById('addNameInput').focus();
 });
 
-document.getElementById('addForm').addEventListener('submit', () => {
+document.getElementById('addForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
   sessionStorage.removeItem(PENDING_ID_KEY);
+
+  const form = e.target;
+  const formData = new FormData(form);
+  const name = formData.get('name') || '';
+  const phone = formData.get('phone') || '';
+  const anonId = formData.get('suggested_id') || '';
+  const price = formData.get('price') || '0';
+  const email = formData.get('email') || '';
+
+  // Close modal immediately
+  bootstrap.Modal.getInstance(document.getElementById('addModal')).hide();
+
+  // Hide empty-state alert if visible
+  const emptyAlert = document.querySelector('.alert.alert-info');
+  if (emptyAlert) emptyAlert.style.display = 'none';
+
+  // Ensure table exists (might not if this is the first patient)
+  let tbody = document.querySelector('#activePatientsTable tbody');
+  if (!tbody) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'table-responsive';
+    wrapper.innerHTML = `
+      <table class="table table-hover align-middle" id="activePatientsTable">
+        <thead class="table-light">
+          <tr><th style="width:40px">#</th><th>שם</th><th>טלפון</th><th>מחיר</th><th>הערות</th><th>מזהה אנונימי</th><th>פעולות</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>`;
+    const content = document.querySelector('.d-flex.align-items-center.justify-content-between.mb-3');
+    if (content) content.insertAdjacentElement('afterend', wrapper);
+    tbody = wrapper.querySelector('tbody');
+  }
+
+  // Add optimistic row
+  const rowCount = tbody.querySelectorAll('tr').length;
+  const tr = document.createElement('tr');
+  tr.className = 'patient-row';
+  tr.dataset.name = name;
+  tr.dataset.anonId = anonId;
+  const escName = document.createElement('span'); escName.textContent = name;
+  const escPhone = document.createElement('span'); escPhone.textContent = phone || '—';
+  tr.innerHTML = `
+    <td class="text-muted small">${rowCount + 1}</td>
+    <td class="fw-semibold">${escName.innerHTML}</td>
+    <td><span class="font-monospace small">${escPhone.innerHTML}</span></td>
+    <td class="text-nowrap">${parseFloat(price) || 0}&#8362;</td>
+    <td class="text-muted small">—</td>
+    <td>
+      <span class="font-monospace small">${anonId}</span>
+      <button class="btn btn-link btn-sm p-0 ms-1" onclick="copyUuid('${anonId}')" title="העתק מזהה">&#128203;</button>
+    </td>
+    <td><span class="badge bg-success bg-opacity-75">&#10003; נשמר</span></td>
+  `;
+  tbody.appendChild(tr);
+
+  // Reset form
+  form.reset();
+  document.getElementById('previewId').textContent = '•••••';
+  document.getElementById('suggestedIdInput').value = '';
+
+  // Background save (local + Firebase queued on server)
+  try {
+    const resp = await fetch(form.action, {
+      method: 'POST',
+      body: formData,
+      headers: { 'X-Requested-With': 'XMLHttpRequest' }
+    });
+    const data = await resp.json();
+    if (!data.ok) {
+      tr.querySelector('.badge').className = 'badge bg-danger bg-opacity-75';
+      tr.querySelector('.badge').textContent = data.error || 'שגיאה';
+    }
+  } catch {
+    tr.querySelector('.badge').className = 'badge bg-warning bg-opacity-75';
+    tr.querySelector('.badge').textContent = 'ממתין לסנכרון';
+  }
 });
 
 

@@ -65,7 +65,7 @@ import firebase_sync
 # ========================
 # App version
 # ========================
-APP_VERSION = "2.4.0"
+APP_VERSION = "2.5.0"
 
 # ========================
 # Auto-update state
@@ -163,6 +163,38 @@ def _refresh_license():
         return True
 
     return False
+
+
+def _load_license_from_cache():
+    """Load license info from SQLite cache ONLY (no Firebase call).
+    Used during login for instant access without network wait."""
+    global _license_info
+
+    cached = db.get_cached_license()
+    if cached:
+        start_dt = datetime.fromisoformat(cached["trial_start_date"])
+        now = datetime.now(start_dt.tzinfo) if start_dt.tzinfo else datetime.now()
+        days_used = (now - start_dt).days
+        days_remaining = max(0, TRIAL_DAYS - days_used)
+        licensed = cached["licensed"]
+
+        if licensed:
+            status = "licensed"
+        elif days_remaining > 0:
+            status = "trial"
+        else:
+            status = "expired"
+
+        _license_info.update({
+            "status": status,
+            "trial_start_date": start_dt,
+            "days_remaining": days_remaining,
+            "days_used": days_used,
+            "licensed": licensed,
+        })
+    else:
+        # No cache at all — allow access, background refresh will correct
+        _license_info.update({"status": "trial"})
 
 
 # ========================
@@ -266,8 +298,9 @@ def _check_license():
         return
     if _license_info["status"] == "unknown":
         _refresh_license()
-    # If still unknown after refresh (cache deleted + offline) → block until verified
-    if _license_info["status"] in ("expired", "unknown"):
+    # Only block if license is definitively expired.
+    # If unknown (offline / can't verify) — let the user work locally.
+    if _license_info["status"] == "expired":
         return redirect(url_for("trial_expired"))
 
 
@@ -444,7 +477,7 @@ def login():
         ok, uname = db.verify_user(username, password)
 
         if ok:
-            # ── Local auth succeeded ──
+            # ── Local auth succeeded — log in INSTANTLY from cache ──
             _app_logger.info("Login successful (local): %s", uname)
             db.set_current_user(uname)
             db.init_db()
@@ -455,7 +488,10 @@ def login():
             firebase_sync.set_username(uname)
             _init_encryption_from_password(password)
 
-            # Firebase Auth + license refresh in background
+            # Use cached license — no network wait
+            _load_license_from_cache()
+
+            # Firebase Auth + license refresh + sync queue flush in background
             def _bg_firebase_auth(u, p):
                 try:
                     fb_result = firebase_auth.login(u, p)
@@ -468,9 +504,9 @@ def login():
                 except Exception:
                     pass
                 _refresh_license()
+                _flush_sync_queue_once()
             threading.Thread(target=_bg_firebase_auth, args=(uname, password), daemon=True).start()
 
-            _refresh_license()
             return redirect(url_for("dashboard"))
 
         # ── No local match — try Firebase (user may exist on another computer) ──
@@ -1060,7 +1096,11 @@ def patients_add():
     phone = request.form.get("phone", "").strip()
     notes = request.form.get("notes", "").strip()
 
+    is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
+
     if not name:
+        if is_ajax:
+            return jsonify({"ok": False, "error": "שם המטופל הוא שדה חובה"})
         flash("שם המטופל הוא שדה חובה", "error")
         return redirect(url_for("patients"))
 
@@ -1070,18 +1110,37 @@ def patients_add():
     is_anonymous = 1 if request.form.get("is_anonymous") else 0
     if price == 0:
         price = db.get_payment_settings().get("defaultPrice", 0)
-    firebase_check = firebase_sync.patient_id_exists if firebase_sync.is_connected() else None
-    result = db.add_patient(name, phone, notes, firebase_check=firebase_check,
+
+    # Save locally first (instant) — no Firebase check needed for speed
+    result = db.add_patient(name, phone, notes,
                             price=price, suggested_id=suggested_id,
                             is_anonymous=is_anonymous, email=email)
     if result["ok"]:
         anon_id = result["anonymous_id"]
-        if firebase_sync.is_connected():
-            firebase_sync.register_patient(anon_id, price=price, is_anonymous=bool(is_anonymous))
-            # Push encrypted patient data to Firebase
-            _push_encrypted_patient_bg({"anonymous_id": anon_id, "name": name, "phone": phone, "notes": notes})
+        # Queue Firebase sync in background
+        patient_payload = {
+            "anonymous_id": anon_id, "name": name, "phone": phone,
+            "notes": notes, "price": price, "is_anonymous": is_anonymous,
+        }
+        def _sync_patient_bg():
+            try:
+                if firebase_sync.is_connected():
+                    firebase_sync.register_patient(anon_id, price=price, is_anonymous=bool(is_anonymous))
+                    _push_encrypted_patient_bg(patient_payload)
+                else:
+                    # Offline — queue for later
+                    db.enqueue_firebase_sync(anon_id, "register_patient", payload=patient_payload)
+            except Exception:
+                # Failed — queue for retry
+                db.enqueue_firebase_sync(anon_id, "register_patient", payload=patient_payload)
+        threading.Thread(target=_sync_patient_bg, daemon=True).start()
+
+        if is_ajax:
+            return jsonify({"ok": True, "anonymous_id": anon_id})
         flash(f"מטופל נוסף! מזהה אנונימי: {anon_id}", "success")
     else:
+        if is_ajax:
+            return jsonify({"ok": False, "error": result.get("error", "שגיאה בהוספת מטופל")})
         flash(result.get("error", "שגיאה בהוספת מטופל"), "error")
 
     return redirect(url_for("patients"))
@@ -1103,14 +1162,27 @@ def patients_update(patient_id):
 
     result = db.update_patient(patient_id, name, phone, notes, price=price,
                                is_anonymous=is_anonymous, email=email)
-    if result["ok"] and firebase_sync.is_connected():
-        # Look up anonymous_id to update price in Firebase
+    if result["ok"]:
         patient = db.get_patient_by_id(patient_id)
         if patient:
-            firebase_sync.update_patient_price(patient["anonymous_id"], price)
-            # Push encrypted patient data to Firebase
-            _push_encrypted_patient_bg({"anonymous_id": patient["anonymous_id"],
-                                        "name": name, "phone": phone, "notes": notes})
+            patient_payload = {
+                "anonymous_id": patient["anonymous_id"],
+                "name": name, "phone": phone, "notes": notes,
+                "price": price, "is_anonymous": is_anonymous, "email": email,
+            }
+
+            def _bg_update_patient():
+                try:
+                    if firebase_sync.is_connected():
+                        firebase_sync.update_patient_price(patient["anonymous_id"], price)
+                        _push_encrypted_patient_bg({"anonymous_id": patient["anonymous_id"],
+                                                    "name": name, "phone": phone, "notes": notes})
+                    else:
+                        db.enqueue_firebase_sync(patient["anonymous_id"], "update_patient", payload=patient_payload)
+                except Exception:
+                    db.enqueue_firebase_sync(patient["anonymous_id"], "update_patient", payload=patient_payload)
+
+            threading.Thread(target=_bg_update_patient, daemon=True).start()
     flash("פרטי המטופל עודכנו" if result["ok"] else result.get("error", "שגיאה"),
           "success" if result["ok"] else "error")
     return redirect(url_for("patients"))
@@ -1138,11 +1210,24 @@ def patients_set_anonymous(patient_id):
         patient.get("notes", ""), price=float(patient.get("price") or 0),
         is_anonymous=is_anonymous,
     )
-    if result.get("ok") and firebase_sync.is_connected():
-        firebase_sync.update_patient_price(
-            patient["anonymous_id"], float(patient.get("price") or 0),
-            is_anonymous=bool(is_anonymous),
-        )
+    if result.get("ok"):
+        anon_id = patient["anonymous_id"]
+        p_price = float(patient.get("price") or 0)
+
+        def _bg_set_anon():
+            try:
+                if firebase_sync.is_connected():
+                    firebase_sync.update_patient_price(anon_id, p_price, is_anonymous=bool(is_anonymous))
+                else:
+                    db.enqueue_firebase_sync(anon_id, "set_anonymous", payload={
+                        "anonymous_id": anon_id, "price": p_price, "is_anonymous": is_anonymous,
+                    })
+            except Exception:
+                db.enqueue_firebase_sync(anon_id, "set_anonymous", payload={
+                    "anonymous_id": anon_id, "price": p_price, "is_anonymous": is_anonymous,
+                })
+
+        threading.Thread(target=_bg_set_anon, daemon=True).start()
     return jsonify(result)
 
 
@@ -1217,16 +1302,31 @@ def api_add_note(patient_id):
         note_type=note_type, appointment_date=appt_date, appointment_time=appt_time,
     )
     if result["ok"]:
-        try:
-            if firebase_sync.is_connected():
-                encrypted = db.encrypt_note(content)
-                firebase_sync.push_treatment_note(
-                    patient["anonymous_id"], str(result["id"]),
-                    encrypted, note_type, appt_date, appt_time,
-                )
-                db.mark_notes_synced([result["id"]])
-        except Exception:
-            pass  # Saved locally; sync will happen later
+        anon_id = patient["anonymous_id"]
+        note_id_str = str(result["id"])
+
+        def _bg_push_note():
+            try:
+                if firebase_sync.is_connected():
+                    encrypted = db.encrypt_note(content)
+                    firebase_sync.push_treatment_note(
+                        anon_id, note_id_str, encrypted, note_type, appt_date, appt_time,
+                    )
+                    db.mark_notes_synced([result["id"]])
+                else:
+                    db.enqueue_firebase_sync(note_id_str, "push_note", payload={
+                        "anonymous_id": anon_id, "note_id": note_id_str,
+                        "content": content, "note_type": note_type,
+                        "appt_date": appt_date, "appt_time": appt_time,
+                    })
+            except Exception:
+                db.enqueue_firebase_sync(note_id_str, "push_note", payload={
+                    "anonymous_id": anon_id, "note_id": note_id_str,
+                    "content": content, "note_type": note_type,
+                    "appt_date": appt_date, "appt_time": appt_time,
+                })
+
+        threading.Thread(target=_bg_push_note, daemon=True).start()
     return jsonify(result)
 
 
@@ -1239,19 +1339,36 @@ def api_update_note(patient_id, note_id):
         return jsonify({"ok": False, "error": "תוכן ריק"})
     result = db.update_treatment_note(note_id, content)
     if result["ok"]:
-        try:
-            if firebase_sync.is_connected():
-                patient = db.get_patient_by_id(patient_id)
-                if patient:
-                    encrypted = db.encrypt_note(content)
-                    firebase_sync.push_treatment_note(
-                        patient["anonymous_id"], str(note_id), encrypted,
-                        data.get("noteType", "freeform"),
-                        data.get("appointmentDate"), data.get("appointmentTime"),
-                    )
-                    db.mark_notes_synced([note_id])
-        except Exception:
-            pass
+        patient = db.get_patient_by_id(patient_id)
+        if patient:
+            anon_id = patient["anonymous_id"]
+            n_type = data.get("noteType", "freeform")
+            a_date = data.get("appointmentDate")
+            a_time = data.get("appointmentTime")
+            note_id_str = str(note_id)
+
+            def _bg_update_note():
+                try:
+                    if firebase_sync.is_connected():
+                        encrypted = db.encrypt_note(content)
+                        firebase_sync.push_treatment_note(
+                            anon_id, note_id_str, encrypted, n_type, a_date, a_time,
+                        )
+                        db.mark_notes_synced([note_id])
+                    else:
+                        db.enqueue_firebase_sync(note_id_str, "push_note", payload={
+                            "anonymous_id": anon_id, "note_id": note_id_str,
+                            "content": content, "note_type": n_type,
+                            "appt_date": a_date, "appt_time": a_time,
+                        })
+                except Exception:
+                    db.enqueue_firebase_sync(note_id_str, "push_note", payload={
+                        "anonymous_id": anon_id, "note_id": note_id_str,
+                        "content": content, "note_type": n_type,
+                        "appt_date": a_date, "appt_time": a_time,
+                    })
+
+            threading.Thread(target=_bg_update_note, daemon=True).start()
     return jsonify(result)
 
 
@@ -1261,11 +1378,23 @@ def api_delete_note(patient_id, note_id):
     patient = db.get_patient_by_id(patient_id)
     result = db.delete_treatment_note(note_id)
     if result["ok"] and patient:
-        try:
-            if firebase_sync.is_connected():
-                firebase_sync.delete_treatment_note_firebase(patient["anonymous_id"], str(note_id))
-        except Exception:
-            pass
+        anon_id = patient["anonymous_id"]
+        note_id_str = str(note_id)
+
+        def _bg_delete_note():
+            try:
+                if firebase_sync.is_connected():
+                    firebase_sync.delete_treatment_note_firebase(anon_id, note_id_str)
+                else:
+                    db.enqueue_firebase_sync(note_id_str, "delete_note", payload={
+                        "anonymous_id": anon_id, "note_id": note_id_str,
+                    })
+            except Exception:
+                db.enqueue_firebase_sync(note_id_str, "delete_note", payload={
+                    "anonymous_id": anon_id, "note_id": note_id_str,
+                })
+
+        threading.Thread(target=_bg_delete_note, daemon=True).start()
     return jsonify(result)
 
 
@@ -1284,15 +1413,24 @@ def api_add_emergency_contact(patient_id):
         return jsonify({"ok": False, "error": "שם וטלפון הם שדות חובה"})
     result = db.add_emergency_contact(patient_id, patient["anonymous_id"], name, phone)
     if result["ok"]:
-        try:
-            if firebase_sync.is_connected():
-                contacts = db.get_emergency_contacts(patient_id)
-                firebase_sync.sync_emergency_contacts(
-                    patient["anonymous_id"],
-                    _encrypt_ec_list(contacts),
-                )
-        except Exception:
-            pass  # Saved locally; sync will happen later
+        anon_id = patient["anonymous_id"]
+        p_id = patient_id
+
+        def _bg_sync_ec():
+            try:
+                if firebase_sync.is_connected():
+                    contacts = db.get_emergency_contacts(p_id)
+                    firebase_sync.sync_emergency_contacts(anon_id, _encrypt_ec_list(contacts))
+                else:
+                    db.enqueue_firebase_sync(anon_id, "sync_emergency_contacts", payload={
+                        "anonymous_id": anon_id, "patient_id": p_id,
+                    })
+            except Exception:
+                db.enqueue_firebase_sync(anon_id, "sync_emergency_contacts", payload={
+                    "anonymous_id": anon_id, "patient_id": p_id,
+                })
+
+        threading.Thread(target=_bg_sync_ec, daemon=True).start()
     return jsonify(result)
 
 
@@ -1306,17 +1444,26 @@ def api_update_emergency_contact(patient_id, ec_id):
         return jsonify({"ok": False, "error": "שם וטלפון הם שדות חובה"})
     result = db.update_emergency_contact(ec_id, name, phone)
     if result["ok"]:
-        try:
-            if firebase_sync.is_connected():
-                patient = db.get_patient_by_id(patient_id)
-                if patient:
-                    contacts = db.get_emergency_contacts(patient_id)
-                    firebase_sync.sync_emergency_contacts(
-                        patient["anonymous_id"],
-                        _encrypt_ec_list(contacts),
-                    )
-        except Exception:
-            pass
+        patient = db.get_patient_by_id(patient_id)
+        if patient:
+            anon_id = patient["anonymous_id"]
+            p_id = patient_id
+
+            def _bg_sync_ec():
+                try:
+                    if firebase_sync.is_connected():
+                        contacts = db.get_emergency_contacts(p_id)
+                        firebase_sync.sync_emergency_contacts(anon_id, _encrypt_ec_list(contacts))
+                    else:
+                        db.enqueue_firebase_sync(anon_id, "sync_emergency_contacts", payload={
+                            "anonymous_id": anon_id, "patient_id": p_id,
+                        })
+                except Exception:
+                    db.enqueue_firebase_sync(anon_id, "sync_emergency_contacts", payload={
+                        "anonymous_id": anon_id, "patient_id": p_id,
+                    })
+
+            threading.Thread(target=_bg_sync_ec, daemon=True).start()
     return jsonify(result)
 
 
@@ -1325,17 +1472,26 @@ def api_update_emergency_contact(patient_id, ec_id):
 def api_delete_emergency_contact(patient_id, ec_id):
     result = db.delete_emergency_contact(ec_id)
     if result["ok"]:
-        try:
-            if firebase_sync.is_connected():
-                patient = db.get_patient_by_id(patient_id)
-                if patient:
-                    contacts = db.get_emergency_contacts(patient_id)
-                    firebase_sync.sync_emergency_contacts(
-                        patient["anonymous_id"],
-                        _encrypt_ec_list(contacts),
-                    )
-        except Exception:
-            pass
+        patient = db.get_patient_by_id(patient_id)
+        if patient:
+            anon_id = patient["anonymous_id"]
+            p_id = patient_id
+
+            def _bg_sync_ec():
+                try:
+                    if firebase_sync.is_connected():
+                        contacts = db.get_emergency_contacts(p_id)
+                        firebase_sync.sync_emergency_contacts(anon_id, _encrypt_ec_list(contacts))
+                    else:
+                        db.enqueue_firebase_sync(anon_id, "sync_emergency_contacts", payload={
+                            "anonymous_id": anon_id, "patient_id": p_id,
+                        })
+                except Exception:
+                    db.enqueue_firebase_sync(anon_id, "sync_emergency_contacts", payload={
+                        "anonymous_id": anon_id, "patient_id": p_id,
+                    })
+
+            threading.Thread(target=_bg_sync_ec, daemon=True).start()
     return jsonify(result)
 
 
@@ -1357,17 +1513,32 @@ def api_upsert_referral(patient_id):
         patient_id, patient["anonymous_id"], broker_name, percentage, total_sessions,
     )
     if result["ok"]:
-        try:
-            if firebase_sync.is_connected():
-                encrypted_broker = db.encrypt_note(broker_name)
-                firebase_sync.sync_referral_agreement(patient["anonymous_id"], {
-                    "encryptedBrokerName": encrypted_broker,
-                    "percentage": percentage,
-                    "totalSessions": total_sessions,
+        anon_id = patient["anonymous_id"]
+
+        def _bg_sync_ref():
+            try:
+                if firebase_sync.is_connected():
+                    encrypted_broker = db.encrypt_note(broker_name)
+                    firebase_sync.sync_referral_agreement(anon_id, {
+                        "encryptedBrokerName": encrypted_broker,
+                        "percentage": percentage,
+                        "totalSessions": total_sessions,
+                        "enabled": True,
+                    })
+                else:
+                    db.enqueue_firebase_sync(anon_id, "sync_referral", payload={
+                        "anonymous_id": anon_id, "broker_name": broker_name,
+                        "percentage": percentage, "total_sessions": total_sessions,
+                        "enabled": True,
+                    })
+            except Exception:
+                db.enqueue_firebase_sync(anon_id, "sync_referral", payload={
+                    "anonymous_id": anon_id, "broker_name": broker_name,
+                    "percentage": percentage, "total_sessions": total_sessions,
                     "enabled": True,
                 })
-        except Exception:
-            pass
+
+        threading.Thread(target=_bg_sync_ref, daemon=True).start()
     return jsonify(result)
 
 
@@ -1376,15 +1547,24 @@ def api_upsert_referral(patient_id):
 def api_delete_referral(patient_id):
     result = db.delete_referral_agreement(patient_id)
     if result["ok"]:
-        try:
-            if firebase_sync.is_connected():
-                patient = db.get_patient_by_id(patient_id)
-                if patient:
-                    firebase_sync.sync_referral_agreement(patient["anonymous_id"], {
-                        "enabled": False,
+        patient = db.get_patient_by_id(patient_id)
+        if patient:
+            anon_id = patient["anonymous_id"]
+
+            def _bg_del_ref():
+                try:
+                    if firebase_sync.is_connected():
+                        firebase_sync.sync_referral_agreement(anon_id, {"enabled": False})
+                    else:
+                        db.enqueue_firebase_sync(anon_id, "sync_referral", payload={
+                            "anonymous_id": anon_id, "enabled": False,
+                        })
+                except Exception:
+                    db.enqueue_firebase_sync(anon_id, "sync_referral", payload={
+                        "anonymous_id": anon_id, "enabled": False,
                     })
-        except Exception:
-            pass
+
+            threading.Thread(target=_bg_del_ref, daemon=True).start()
     return jsonify(result)
 
 
@@ -1443,14 +1623,21 @@ def settings_save_availability():
     }
     db.set_availability(availability)
 
-    if firebase_sync.is_connected():
-        result = firebase_sync.push_availability(availability)
-        if result["ok"]:
-            flash("הגדרות נשמרו ועודכנו ב-Firebase", "success")
-        else:
-            flash(f"הגדרות נשמרו לוקאלית. שגיאת Firebase: {result.get('error')}", "warning")
-    else:
-        flash("הגדרות נשמרו לוקאלית", "success")
+    import json as _avail_json
+
+    def _bg_push_avail():
+        try:
+            if firebase_sync.is_connected():
+                firebase_sync.push_availability(availability)
+            else:
+                db.enqueue_firebase_sync("availability", "push_availability",
+                                         payload=_avail_json.loads(_avail_json.dumps(availability)))
+        except Exception:
+            db.enqueue_firebase_sync("availability", "push_availability",
+                                     payload=_avail_json.loads(_avail_json.dumps(availability)))
+
+    threading.Thread(target=_bg_push_avail, daemon=True).start()
+    flash("הגדרות נשמרו", "success")
 
     return redirect(url_for("settings"))
 
@@ -1458,17 +1645,25 @@ def settings_save_availability():
 @app.route("/api/toggle-online-booking", methods=["POST"])
 @login_required
 def toggle_online_booking():
-    """Toggle disableOnlineBooking and push to Firebase immediately."""
+    """Toggle disableOnlineBooking and push to Firebase."""
+    import json as _toggle_json
     availability = db.get_availability()
     new_val = not availability.get("disableOnlineBooking", False)
     availability["disableOnlineBooking"] = new_val
     db.set_availability(availability)
 
-    if firebase_sync.is_connected():
-        result = firebase_sync.push_availability(availability)
-        if not result["ok"]:
-            return jsonify({"ok": False, "error": result.get("error", "שגיאת Firebase")})
+    avail_copy = _toggle_json.loads(_toggle_json.dumps(availability))
 
+    def _bg_toggle():
+        try:
+            if firebase_sync.is_connected():
+                firebase_sync.push_availability(avail_copy)
+            else:
+                db.enqueue_firebase_sync("availability", "push_availability", payload=avail_copy)
+        except Exception:
+            db.enqueue_firebase_sync("availability", "push_availability", payload=avail_copy)
+
+    threading.Thread(target=_bg_toggle, daemon=True).start()
     return jsonify({"ok": True, "disabled": new_val})
 
 
@@ -1711,12 +1906,19 @@ def appointments_approve(appt_id):
     if source == "local":
         result = db.approve_local_appointment(int(appt_id))
     else:
-        result = firebase_sync.approve_appointment(appt_id)
-        if result.get("ok"):
-            db.update_cached_appointment_status(appt_id, "booked")
-            # Also update cache for auto-rejected overlapping appointments
-            for rejected_id in result.get("rejected", []):
-                db.update_cached_appointment_status(rejected_id, "cancelled")
+        # Cache-first: update local cache immediately
+        db.update_cached_appointment_status(appt_id, "booked")
+
+        def _bg_approve():
+            res = firebase_sync.approve_appointment(appt_id)
+            if res.get("ok"):
+                for rejected_id in res.get("rejected", []):
+                    db.update_cached_appointment_status(rejected_id, "cancelled")
+            else:
+                db.enqueue_firebase_sync(appt_id, "approve", payload={"appointment_id": appt_id})
+
+        threading.Thread(target=_bg_approve, daemon=True).start()
+        result = {"ok": True}
     return jsonify(result)
 
 
@@ -1727,17 +1929,24 @@ def appointments_reject(appt_id):
     if source == "local":
         result = db.reject_local_appointment(int(appt_id))
     else:
-        result = firebase_sync.reject_appointment(appt_id)
-        if result.get("ok"):
-            db.update_cached_appointment_status(appt_id, "cancelled")
-            # Reset treated/paid on cancelled appointment
-            db.update_cached_appointment(appt_id, "treated", False, None)
-            db.update_cached_appointment(appt_id, "paid", False, None)
-            try:
-                firebase_sync.mark_appointment(appt_id, "treated", False, None)
-                firebase_sync.mark_appointment(appt_id, "paid", False, None)
-            except Exception:
-                pass
+        # Cache-first: update local cache immediately
+        db.update_cached_appointment_status(appt_id, "cancelled")
+        db.update_cached_appointment(appt_id, "treated", False, None)
+        db.update_cached_appointment(appt_id, "paid", False, None)
+
+        def _bg_reject():
+            res = firebase_sync.reject_appointment(appt_id)
+            if res.get("ok"):
+                try:
+                    firebase_sync.mark_appointment(appt_id, "treated", False, None)
+                    firebase_sync.mark_appointment(appt_id, "paid", False, None)
+                except Exception:
+                    pass
+            else:
+                db.enqueue_firebase_sync(appt_id, "reject", payload={"appointment_id": appt_id})
+
+        threading.Thread(target=_bg_reject, daemon=True).start()
+        result = {"ok": True}
     return jsonify(result)
 
 
@@ -1745,20 +1954,32 @@ def appointments_reject(appt_id):
 @login_required
 def appointments_approve_cancel(appt_id):
     """Doctor approves a patient's cancellation request."""
-    result = firebase_sync.approve_cancel_request(appt_id)
-    if result.get("ok"):
-        db.update_cached_appointment_status(appt_id, "cancelled")
-    return jsonify(result)
+    # Cache-first
+    db.update_cached_appointment_status(appt_id, "cancelled")
+
+    def _bg_approve_cancel():
+        res = firebase_sync.approve_cancel_request(appt_id)
+        if not res.get("ok"):
+            db.enqueue_firebase_sync(appt_id, "approve_cancel", payload={"appointment_id": appt_id})
+
+    threading.Thread(target=_bg_approve_cancel, daemon=True).start()
+    return jsonify({"ok": True})
 
 
 @app.route("/appointments/reject-cancel/<appt_id>", methods=["POST"])
 @login_required
 def appointments_reject_cancel(appt_id):
     """Doctor rejects a patient's cancellation request → appointment reverts to pending."""
-    result = firebase_sync.reject_cancel_request(appt_id)
-    if result.get("ok"):
-        db.update_cached_appointment_status(appt_id, "pending")
-    return jsonify(result)
+    # Cache-first
+    db.update_cached_appointment_status(appt_id, "pending")
+
+    def _bg_reject_cancel():
+        res = firebase_sync.reject_cancel_request(appt_id)
+        if not res.get("ok"):
+            db.enqueue_firebase_sync(appt_id, "reject_cancel", payload={"appointment_id": appt_id})
+
+    threading.Thread(target=_bg_reject_cancel, daemon=True).start()
+    return jsonify({"ok": True})
 
 
 @app.route("/appointments/delete/<appt_id>", methods=["POST"])
@@ -1773,9 +1994,16 @@ def appointments_delete(appt_id):
         db.delete_cached_appointment(appt_id)
         result = {"ok": True}
     else:
-        result = firebase_sync.delete_appointment(appt_id)
-        if result.get("ok"):
-            db.delete_cached_appointment(appt_id)
+        # Cache-first: delete locally, sync Firebase in background
+        db.delete_cached_appointment(appt_id)
+
+        def _bg_delete():
+            res = firebase_sync.delete_appointment(appt_id)
+            if not res.get("ok"):
+                db.enqueue_firebase_sync(appt_id, "delete", payload={"appointment_id": appt_id})
+
+        threading.Thread(target=_bg_delete, daemon=True).start()
+        result = {"ok": True}
     return jsonify(result)
 
 
@@ -1983,11 +2211,26 @@ def appointments_reschedule(appt_id):
         result = db.reschedule_local_appointment(int(appt_id), new_date, new_time, duration_min)
     elif source == "cached":
         db.reschedule_cached_appointment(appt_id, new_date, new_time, duration_min)
+        # Also queue for Firebase sync
+        db.enqueue_firebase_sync(appt_id, "reschedule", payload={
+            "appointment_id": appt_id, "date": new_date,
+            "time": new_time, "duration_min": duration_min,
+        })
         result = {"ok": True}
     else:
-        result = firebase_sync.reschedule_appointment(appt_id, new_date, new_time, duration_min)
-        if result["ok"]:
-            db.reschedule_cached_appointment(appt_id, new_date, new_time, duration_min)
+        # Cache-first: update cache immediately, sync Firebase in background
+        db.reschedule_cached_appointment(appt_id, new_date, new_time, duration_min)
+
+        def _bg_reschedule():
+            res = firebase_sync.reschedule_appointment(appt_id, new_date, new_time, duration_min)
+            if not res.get("ok"):
+                db.enqueue_firebase_sync(appt_id, "reschedule", payload={
+                    "appointment_id": appt_id, "date": new_date,
+                    "time": new_time, "duration_min": duration_min,
+                })
+
+        threading.Thread(target=_bg_reschedule, daemon=True).start()
+        result = {"ok": True}
 
     return jsonify(result)
 
@@ -2375,30 +2618,166 @@ def _refresh_license_periodically():
 # Background sync queue flusher
 # ========================
 
+def _process_sync_queue():
+    """Single pass: process all pending sync operations. Returns True if any were processed."""
+    if not db.get_current_user():
+        return False
+    if not firebase_sync.is_connected():
+        return False
+
+    db.clear_stale_sync_operations()
+    ops = db.get_pending_sync_operations()
+    if not ops:
+        return False
+
+    for op in ops:
+        success = False
+        operation = op["operation"]
+        payload = op.get("payload") or {}
+
+        try:
+            if operation == "mark":
+                res = firebase_sync.mark_appointment(
+                    op["appointment_id"], op["field"],
+                    op["value"], op["payment_method"],
+                )
+                success = res.get("ok", False)
+
+            elif operation == "register_patient":
+                anon_id = op["appointment_id"]
+                firebase_sync.register_patient(
+                    anon_id,
+                    price=payload.get("price", 0),
+                    is_anonymous=bool(payload.get("is_anonymous", 0)),
+                )
+                _push_encrypted_patient_bg(payload)
+                success = True
+
+            elif operation == "approve":
+                res = firebase_sync.approve_appointment(payload["appointment_id"])
+                success = res.get("ok", False)
+                if success:
+                    for rejected_id in res.get("rejected", []):
+                        db.update_cached_appointment_status(rejected_id, "cancelled")
+
+            elif operation == "reject":
+                res = firebase_sync.reject_appointment(payload["appointment_id"])
+                success = res.get("ok", False)
+                if success:
+                    try:
+                        firebase_sync.mark_appointment(payload["appointment_id"], "treated", False, None)
+                        firebase_sync.mark_appointment(payload["appointment_id"], "paid", False, None)
+                    except Exception:
+                        pass
+
+            elif operation == "delete":
+                res = firebase_sync.delete_appointment(payload["appointment_id"])
+                success = res.get("ok", False)
+
+            elif operation == "reschedule":
+                res = firebase_sync.reschedule_appointment(
+                    payload["appointment_id"], payload["date"],
+                    payload["time"], payload.get("duration_min"),
+                )
+                success = res.get("ok", False)
+
+            elif operation == "approve_cancel":
+                res = firebase_sync.approve_cancel_request(payload["appointment_id"])
+                success = res.get("ok", False)
+
+            elif operation == "reject_cancel":
+                res = firebase_sync.reject_cancel_request(payload["appointment_id"])
+                success = res.get("ok", False)
+
+            elif operation == "update_patient":
+                anon_id = payload.get("anonymous_id") or op["appointment_id"]
+                firebase_sync.update_patient_price(
+                    anon_id, payload.get("price", 0),
+                    is_anonymous=bool(payload.get("is_anonymous", 0)),
+                )
+                _push_encrypted_patient_bg(payload)
+                success = True
+
+            elif operation == "set_anonymous":
+                anon_id = payload.get("anonymous_id") or op["appointment_id"]
+                firebase_sync.update_patient_price(
+                    anon_id, payload.get("price", 0),
+                    is_anonymous=bool(payload.get("is_anonymous", 0)),
+                )
+                success = True
+
+            elif operation == "push_note":
+                encrypted = db.encrypt_note(payload["content"])
+                firebase_sync.push_treatment_note(
+                    payload["anonymous_id"], payload["note_id"],
+                    encrypted, payload.get("note_type", "freeform"),
+                    payload.get("appt_date"), payload.get("appt_time"),
+                )
+                try:
+                    db.mark_notes_synced([int(payload["note_id"])])
+                except Exception:
+                    pass
+                success = True
+
+            elif operation == "delete_note":
+                firebase_sync.delete_treatment_note_firebase(
+                    payload["anonymous_id"], payload["note_id"],
+                )
+                success = True
+
+            elif operation == "sync_emergency_contacts":
+                anon_id = payload["anonymous_id"]
+                p_id = payload["patient_id"]
+                contacts = db.get_emergency_contacts(p_id)
+                firebase_sync.sync_emergency_contacts(anon_id, _encrypt_ec_list(contacts))
+                success = True
+
+            elif operation == "sync_referral":
+                anon_id = payload["anonymous_id"]
+                if payload.get("enabled") is False:
+                    firebase_sync.sync_referral_agreement(anon_id, {"enabled": False})
+                else:
+                    encrypted_broker = db.encrypt_note(payload.get("broker_name", ""))
+                    firebase_sync.sync_referral_agreement(anon_id, {
+                        "encryptedBrokerName": encrypted_broker,
+                        "percentage": payload.get("percentage", 0),
+                        "totalSessions": payload.get("total_sessions", 0),
+                        "enabled": True,
+                    })
+                success = True
+
+            elif operation == "push_availability":
+                res = firebase_sync.push_availability(payload)
+                success = res.get("ok", False)
+
+        except Exception:
+            success = False
+
+        if success:
+            db.remove_sync_operation(op["id"])
+        else:
+            _app_logger.warning("Sync retry failed for op %s (%s)", op["id"], operation)
+            db.increment_sync_retry(op["id"])
+
+    return True
+
+
 def _flush_sync_queue():
     """Periodically retry failed Firebase sync operations."""
     while True:
         time.sleep(60)  # check every 60 seconds
-        if not db.get_current_user():
-            continue  # no user logged in yet
         try:
-            db.clear_stale_sync_operations()
-            ops = db.get_pending_sync_operations()
-            if not ops:
-                continue
-            for op in ops:
-                if op["operation"] == "mark":
-                    res = firebase_sync.mark_appointment(
-                        op["appointment_id"], op["field"],
-                        op["value"], op["payment_method"],
-                    )
-                    if res.get("ok"):
-                        db.remove_sync_operation(op["id"])
-                    else:
-                        _app_logger.warning("Sync retry failed for op %s: %s", op["id"], res.get("error"))
-                        db.increment_sync_retry(op["id"])
+            _process_sync_queue()
         except Exception:
             _app_logger.error("Sync queue error", exc_info=True)
+
+
+def _flush_sync_queue_once():
+    """Single pass through the sync queue — called on login."""
+    try:
+        _process_sync_queue()
+    except Exception:
+        _app_logger.error("Sync queue single-pass error", exc_info=True)
 
 
 # ========================

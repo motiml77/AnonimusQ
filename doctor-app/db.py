@@ -2048,19 +2048,25 @@ def _ensure_sync_queue_table(conn):
             retries         INTEGER DEFAULT 0
         )
     """)
+    # Add payload column for patient sync operations (if not exists)
+    try:
+        conn.execute("ALTER TABLE firebase_sync_queue ADD COLUMN payload TEXT")
+    except Exception:
+        pass  # column already exists
 
 
 def enqueue_firebase_sync(appointment_id: str, operation: str,
                           field: str = None, value=None,
-                          payment_method: str = None):
+                          payment_method: str = None, payload: dict = None):
     """Add a failed Firebase operation to the retry queue."""
     conn = _get_conn()
     _ensure_sync_queue_table(conn)
     conn.execute(
         """INSERT INTO firebase_sync_queue
-           (appointment_id, operation, field, value, payment_method)
-           VALUES (?, ?, ?, ?, ?)""",
-        (appointment_id, operation, field, json.dumps(value), payment_method),
+           (appointment_id, operation, field, value, payment_method, payload)
+           VALUES (?, ?, ?, ?, ?, ?)""",
+        (appointment_id, operation, field, json.dumps(value),
+         payment_method, json.dumps(payload) if payload else None),
     )
     conn.commit()
     conn.close()
@@ -2078,6 +2084,7 @@ def get_pending_sync_operations() -> list:
     for r in rows:
         d = dict(r)
         d["value"] = json.loads(d["value"]) if d["value"] else None
+        d["payload"] = json.loads(d["payload"]) if d.get("payload") else None
         result.append(d)
     return result
 

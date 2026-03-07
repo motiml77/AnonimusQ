@@ -18,10 +18,10 @@
     <div class="input-group" style="max-width:600px;">
       <input type="text" class="form-control font-monospace small"
              id="patient-link" readonly
-             value="https://anonimusq.motiml77.workers.dev/index.html?doctor={{ username }}" />
+             value="https://anonimusq.motiml77.workers.dev/index.html" />
       <button class="btn btn-outline-secondary" onclick="copyPatientLink()">העתק</button>
     </div>
-    <div class="form-text">שלח קישור זה למטופלים – הוא יזהה אוטומטית את התיקייה שלך בפיירבייס</div>
+    <div class="form-text">שלח קישור זה למטופלים – הם יזינו את שם המשתמש שלך (<strong>{{ username }}</strong>) ואת קוד הזיהוי האישי שלהם</div>
   </div>
 </div>
 
@@ -74,7 +74,7 @@
         <label class="form-label fw-semibold">ימי חסימה (YYYY-MM-DD, מופרדים בפסיק)</label>
         <input type="text" name="blocked_dates" class="form-control font-monospace"
                value="{{ availability.blockedDates | join(', ') }}"
-               placeholder="2026-03-15, 2026-04-01" />
+               placeholder="הזן תאריכים" />
       </div>
 
       <div class="mb-4 p-3 rounded" style="background:#fff3e0;border:1px solid #ffe0b2;">
@@ -215,11 +215,11 @@
       </tr>
       <tr>
         <td class="fw-semibold">הרשמה ראשונה</td>
-        <td><span class="badge bg-primary">דורש אינטרנט</span></td>
+        <td><span class="badge" style="background-color:#3b82f6;">דורש אינטרנט</span></td>
       </tr>
       <tr>
         <td class="fw-semibold">שינוי סיסמא</td>
-        <td><span class="badge bg-primary">דורש אינטרנט</span></td>
+        <td><span class="badge" style="background-color:#3b82f6;">דורש אינטרנט</span></td>
       </tr>
       <tr>
         <td class="fw-semibold">צפייה בתורים</td>
@@ -227,7 +227,7 @@
       </tr>
       <tr>
         <td class="fw-semibold">סנכרון תורים</td>
-        <td><span class="badge bg-primary">דורש אינטרנט</span></td>
+        <td><span class="badge" style="background-color:#3b82f6;">דורש אינטרנט</span></td>
       </tr>
     </table>
   </div>

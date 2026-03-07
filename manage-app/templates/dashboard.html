@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ClinicTor — ניהול מטפלים</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.rtl.min.css" rel="stylesheet" />
+  <style>
+    body { background: #f1f5f9; font-family: 'Segoe UI', Tahoma, sans-serif; }
+    .top-bar {
+      background: linear-gradient(135deg, #1e293b, #334155);
+      color: #fff;
+      padding: 20px 32px;
+      margin-bottom: 24px;
+    }
+    .top-bar h1 { font-size: 1.5rem; font-weight: 700; margin: 0; }
+    .top-bar .subtitle { font-size: 0.85rem; color: #94a3b8; margin-top: 4px; }
+    .stats-row { display: flex; gap: 16px; margin-bottom: 24px; padding: 0 24px; }
+    .stat-card {
+      background: #fff;
+      border-radius: 12px;
+      padding: 20px 24px;
+      flex: 1;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+      text-align: center;
+    }
+    .stat-card .number { font-size: 2rem; font-weight: 700; color: #1e293b; }
+    .stat-card .label { font-size: 0.82rem; color: #64748b; margin-top: 4px; }
+    .table-wrapper {
+      background: #fff;
+      border-radius: 12px;
+      margin: 0 24px;
+      padding: 24px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+    }
+    .table th {
+      background: #f8fafc;
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: #475569;
+      border-bottom: 2px solid #e2e8f0;
+      white-space: nowrap;
+    }
+    .table td {
+      vertical-align: middle;
+      font-size: 0.88rem;
+    }
+    .badge-licensed { background: #16a34a; }
+    .badge-trial { background: #f59e0b; color: #000; }
+    .badge-expired { background: #dc2626; }
+    .month-check {
+      width: 14px; height: 14px;
+      cursor: pointer;
+      accent-color: #16a34a;
+      margin: 0;
+    }
+    .btn-recover {
+      font-size: 0.78rem;
+      padding: 4px 10px;
+    }
+    .loading { text-align: center; padding: 60px; color: #94a3b8; font-size: 1.1rem; }
+    /* Password modal */
+    .password-display {
+      background: #f0fdf4;
+      border: 2px solid #16a34a;
+      border-radius: 10px;
+      padding: 20px;
+      text-align: center;
+      font-size: 1.8rem;
+      font-weight: 700;
+      font-family: monospace;
+      letter-spacing: 2px;
+      color: #166534;
+      direction: ltr;
+    }
+  </style>
+</head>
+<body>
+
+<div class="top-bar">
+  <h1>&#9881; ClinicTor — ניהול מטפלים</h1>
+  <div class="subtitle">דשבורד ניהול, רישוי ושחזור סיסמאות</div>
+</div>
+
+<!-- Stats -->
+<div class="stats-row">
+  <div class="stat-card">
+    <div class="number" id="statTotal">-</div>
+    <div class="label">מטפלים רשומים</div>
+  </div>
+  <div class="stat-card">
+    <div class="number" id="statLicensed" style="color:#16a34a;">-</div>
+    <div class="label">מנויים פעילים</div>
+  </div>
+  <div class="stat-card">
+    <div class="number" id="statTrial" style="color:#f59e0b;">-</div>
+    <div class="label">בתקופת ניסיון</div>
+  </div>
+  <div class="stat-card">
+    <div class="number" id="statPatients" style="color:#6366f1;">-</div>
+    <div class="label">סה״כ מטופלים</div>
+  </div>
+</div>
+
+<!-- Doctors table -->
+<div class="table-wrapper">
+  <h5 class="fw-bold mb-3">&#128100; רשימת מטפלים</h5>
+  <div id="tableLoading" class="loading">&#8987; טוען נתונים מ-Firebase...</div>
+  <div class="table-responsive" id="tableContainer" style="display:none;">
+    <table class="table table-hover mb-0">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>שם משתמש</th>
+          <th>שם מלא</th>
+          <th>מייל</th>
+          <th>טלפון</th>
+          <th>מנוי</th>
+          <th>מטופלים</th>
+          <th id="monthHeaders"></th>
+          <th>פעולות</th>
+        </tr>
+      </thead>
+      <tbody id="doctorsBody"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Password Recovery Modal -->
+<div class="modal fade" id="passwordModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content" style="border-radius:14px;">
+      <div class="modal-header border-0 pb-0">
+        <h5 class="modal-title fw-bold">&#128274; שחזור סיסמה</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted small mb-2">סיסמה עבור: <strong id="recoveryUsername"></strong></p>
+        <div id="recoveryResult"></div>
+      </div>
+      <div class="modal-footer border-0 pt-0">
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">סגור</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+// Generate month columns: Jan–Dec of current year
+var HE_MONTHS = ['ינו׳','פבר׳','מרץ','אפר׳','מאי','יוני','יולי','אוג׳','ספט׳','אוק׳','נוב׳','דצמ׳'];
+function getMonthColumns() {
+  var months = [];
+  var year = new Date().getFullYear();
+  for (var i = 0; i < 12; i++) {
+    var key = year + '-' + String(i + 1).padStart(2, '0');
+    months.push({key: key, label: HE_MONTHS[i]});
+  }
+  return months;
+}
+
+var MONTHS = getMonthColumns();
+
+// Build month header cells
+var headerHtml = '';
+MONTHS.forEach(function(m) {
+  headerHtml += '<th style="font-size:0.62rem;text-align:center;padding:4px 2px;white-space:nowrap;">' + m.label + '</th>';
+});
+document.getElementById('monthHeaders').outerHTML = headerHtml;
+
+// Load doctors
+var _doctors = [];
+
+function loadDoctors() {
+  fetch('/api/doctors').then(function(r) { return r.json(); }).then(function(doctors) {
+    _doctors = doctors;
+    renderTable(doctors);
+    updateStats(doctors);
+    document.getElementById('tableLoading').style.display = 'none';
+    document.getElementById('tableContainer').style.display = 'block';
+  }).catch(function(e) {
+    document.getElementById('tableLoading').innerHTML = '&#9888; שגיאה בטעינת נתונים: ' + e;
+  });
+}
+
+function updateStats(doctors) {
+  document.getElementById('statTotal').textContent = doctors.length;
+  var licensed = 0, trial = 0, patients = 0;
+  doctors.forEach(function(d) {
+    if (d.licensed) licensed++;
+    else trial++;
+    patients += d.patientCount || 0;
+  });
+  document.getElementById('statLicensed').textContent = licensed;
+  document.getElementById('statTrial').textContent = trial;
+  document.getElementById('statPatients').textContent = patients;
+}
+
+function renderTable(doctors) {
+  var tbody = document.getElementById('doctorsBody');
+  tbody.innerHTML = '';
+
+  doctors.forEach(function(doc, idx) {
+    var tr = document.createElement('tr');
+
+    // License badge
+    var badge = '';
+    if (doc.licensed) {
+      badge = '<span class="badge badge-licensed">מנוי</span>';
+    } else if (doc.trialStartDate) {
+      var start = new Date(doc.trialStartDate);
+      var days = Math.floor((new Date() - start) / 86400000);
+      if (days <= 30) {
+        badge = '<span class="badge badge-trial">ניסיון (' + (30 - days) + ' ימים)</span>';
+      } else {
+        badge = '<span class="badge badge-expired">פג תוקף</span>';
+      }
+    } else {
+      badge = '<span class="badge bg-secondary">לא ידוע</span>';
+    }
+
+    // License toggle button
+    var toggleBtn = doc.licensed
+      ? '<button class="btn btn-outline-danger btn-sm me-1" style="font-size:0.72rem;" onclick="toggleLicense(\'' + doc.username + '\', false)">בטל</button>'
+      : '<button class="btn btn-outline-success btn-sm me-1" style="font-size:0.72rem;" onclick="toggleLicense(\'' + doc.username + '\', true)">הפעל</button>';
+
+    // Month checkboxes
+    var monthCells = '';
+    MONTHS.forEach(function(m) {
+      var checked = (doc.payments && doc.payments[m.key]) ? 'checked' : '';
+      monthCells += '<td style="text-align:center;padding:4px 2px;">' +
+        '<input type="checkbox" class="month-check" ' + checked +
+        ' onchange="setPayment(\'' + doc.username + '\', \'' + m.key + '\', this.checked)" />' +
+        '</td>';
+    });
+
+    tr.innerHTML =
+      '<td class="text-muted">' + (idx + 1) + '</td>' +
+      '<td><code>' + doc.username + '</code></td>' +
+      '<td>' + (doc.fullName || '<span class="text-muted">-</span>') + '</td>' +
+      '<td style="direction:ltr;text-align:right;font-size:0.82rem;">' + (doc.email || '-') + '</td>' +
+      '<td style="direction:ltr;text-align:right;font-size:0.82rem;">' + (doc.phone || '-') + '</td>' +
+      '<td>' + badge + ' ' + toggleBtn + '</td>' +
+      '<td class="text-center fw-bold">' + (doc.patientCount || 0) + '</td>' +
+      monthCells +
+      '<td><button class="btn btn-outline-primary btn-recover" onclick="recoverPassword(\'' + doc.username + '\')">&#128274; שחזור</button></td>';
+
+    tbody.appendChild(tr);
+  });
+}
+
+function toggleLicense(username, licensed) {
+  var action = licensed ? 'להפעיל מנוי' : 'לבטל מנוי';
+  if (!confirm('האם ' + action + ' עבור ' + username + '?')) return;
+
+  fetch('/api/toggle-license', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({username: username, licensed: licensed})
+  }).then(function(r) { return r.json(); }).then(function(data) {
+    if (data.ok) loadDoctors();
+    else alert('שגיאה: ' + data.error);
+  });
+}
+
+function setPayment(username, month, paid) {
+  fetch('/api/set-payment', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({username: username, month: month, paid: paid})
+  }).then(function(r) { return r.json(); }).then(function(data) {
+    if (!data.ok) alert('שגיאה: ' + data.error);
+  });
+}
+
+function recoverPassword(username) {
+  document.getElementById('recoveryUsername').textContent = username;
+  document.getElementById('recoveryResult').innerHTML =
+    '<div class="text-center text-muted"><span class="spinner-border spinner-border-sm me-2"></span>מפענח...</div>';
+
+  var modal = new bootstrap.Modal(document.getElementById('passwordModal'));
+  modal.show();
+
+  fetch('/api/recover-password', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({username: username})
+  }).then(function(r) { return r.json(); }).then(function(data) {
+    if (data.ok) {
+      document.getElementById('recoveryResult').innerHTML =
+        '<div class="password-display">' + data.password + '</div>' +
+        '<div class="text-muted small text-center mt-2">הסיסמה מוצגת באופן חד-פעמי. העבר אותה למטפל.</div>';
+    } else {
+      document.getElementById('recoveryResult').innerHTML =
+        '<div class="alert alert-danger">' + data.error + '</div>';
+    }
+  }).catch(function() {
+    document.getElementById('recoveryResult').innerHTML =
+      '<div class="alert alert-danger">שגיאת חיבור</div>';
+  });
+}
+
+// Init
+loadDoctors();
+</script>
+</body>
+</html>
