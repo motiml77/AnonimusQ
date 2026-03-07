@@ -11,19 +11,21 @@
 </nav>
 
 <!-- Patient Header -->
-<div class="card mb-3 shadow-sm">
-  <div class="card-body py-2">
-    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+<div class="card mb-3 patient-header">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-start flex-wrap gap-3">
       <div>
-        <h4 class="mb-0 d-inline">{{ patient.name }}</h4>
-        <span class="badge bg-secondary font-monospace ms-2 fs-6">{{ patient.anonymous_id }}</span>
-        {% if patient.phone %}
-        <span class="text-muted ms-3">{{ patient.phone }}</span>
-        {% endif %}
-        <span class="badge bg-primary ms-2">{{ '%g' | format(patient.price or 0) }}&#8362;</span>
-        {% if patient.active == 0 %}
-        <span class="badge bg-warning text-dark ms-2">לא פעיל</span>
-        {% endif %}
+        <div class="patient-name">{{ patient.name }}</div>
+        <div class="patient-meta">
+          <span class="badge-anon-id">{{ patient.anonymous_id }}</span>
+          {% if patient.phone %}
+          <span class="patient-phone">{{ patient.phone }}</span>
+          {% endif %}
+          <span class="badge-price">{{ '%g' | format(patient.price or 0) }}&#8362;</span>
+          {% if patient.active == 0 %}
+          <span class="badge-inactive">לא פעיל</span>
+          {% endif %}
+        </div>
       </div>
       <div class="d-flex gap-2 align-items-center">
         <div class="form-check form-switch mb-0">
@@ -46,7 +48,7 @@
 </div>
 
 <!-- Tab Navigation -->
-<ul class="nav nav-tabs" id="patientTabs" role="tablist">
+<ul class="nav nav-tabs patient-tabs" id="patientTabs" role="tablist">
   <li class="nav-item" role="presentation">
     <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tabSummary" type="button">
       &#128202; סיכום
@@ -80,44 +82,47 @@
   <div class="tab-pane fade show active" id="tabSummary" role="tabpanel">
     <div class="row g-3">
       <div class="col-md-4">
-        <div class="card text-center shadow-sm h-100">
+        <div class="card text-center h-100 summary-card">
           <div class="card-body">
-            <div class="fs-1 fw-bold text-primary" id="sumTotal">{{ summary.total_appointments }}</div>
-            <div class="text-muted">סה"כ פגישות</div>
+            <div class="kpi-number" id="sumTotal">{{ summary.total_appointments }}</div>
+            <span class="kpi-indicator"></span>
+            <div class="kpi-label">סה"כ פגישות</div>
           </div>
         </div>
       </div>
       <div class="col-md-4">
-        <div class="card text-center shadow-sm h-100">
+        <div class="card text-center h-100 summary-card">
           <div class="card-body">
-            <div class="fs-1 fw-bold text-success" id="sumTreated">{{ summary.treated }}</div>
-            <div class="text-muted">טופלו</div>
+            <div class="kpi-number" id="sumTreated" style="color:var(--clr-primary);">{{ summary.treated }}</div>
+            <span class="kpi-indicator"></span>
+            <div class="kpi-label">טופלו</div>
           </div>
         </div>
       </div>
       <div class="col-md-4">
-        <div class="card text-center shadow-sm h-100">
+        <div class="card text-center h-100 summary-card">
           <div class="card-body">
-            <div class="fs-1 fw-bold text-info" id="sumPaid">{{ summary.paid }}</div>
-            <div class="text-muted">שולמו</div>
+            <div class="kpi-number" id="sumPaid" style="color:#3b82f6;">{{ summary.paid }}</div>
+            <span class="kpi-indicator" style="background:#3b82f6;"></span>
+            <div class="kpi-label">שולמו</div>
           </div>
         </div>
       </div>
       <div class="col-md-6">
-        <div class="card shadow-sm h-100">
+        <div class="card h-100 summary-card">
           <div class="card-body">
-            <h6 class="card-title text-muted mb-1">תשלומים שבוצעו</h6>
-            <div class="fs-3 fw-bold" id="sumPaidAmount">{{ '%g' | format(summary.total_paid_amount) }}&#8362;</div>
+            <div class="amount-label">תשלומים שבוצעו</div>
+            <div class="amount-value" id="sumPaidAmount">{{ '%g' | format(summary.total_paid_amount) }}&#8362;</div>
           </div>
         </div>
       </div>
       <div class="col-md-6">
-        <div class="card shadow-sm h-100 {% if summary.unpaid > 0 %}border-danger{% endif %}" id="sumRemainingCard">
+        <div class="card h-100 summary-card {% if summary.unpaid > 0 %}border-danger{% endif %}" id="sumRemainingCard">
           <div class="card-body">
-            <h6 class="card-title text-muted mb-1">נותר לתשלום</h6>
-            <div class="fs-3 fw-bold {% if summary.unpaid > 0 %}text-danger{% else %}text-success{% endif %}" id="sumRemaining">
+            <div class="amount-label">נותר לתשלום</div>
+            <div class="amount-value {% if summary.unpaid > 0 %}text-danger{% else %}text-success{% endif %}" id="sumRemaining">
               {% if summary.unpaid > 0 %}
-                {{ '%g' | format(summary.total_remaining) }}&#8362; <small class="fs-6 text-muted">({{ summary.unpaid }} פגישות)</small>
+                {{ '%g' | format(summary.total_remaining) }}&#8362; <small style="font-size:0.55em;color:var(--clr-text-muted);">({{ summary.unpaid }} פגישות)</small>
               {% else %}
                 0&#8362;
               {% endif %}
@@ -130,30 +135,42 @@
         <div class="card shadow-sm border-warning">
           <div class="card-header bg-warning bg-opacity-25 fw-bold">&#128176; דמי תיווך – {{ referral_summary.broker_name }}</div>
           <div class="card-body">
-            <div class="row text-center">
+            <div class="row g-2 text-center">
               <div class="col">
-                <div class="fw-bold">{{ referral_summary.percentage }}%</div>
-                <small class="text-muted">אחוז</small>
+                <div class="referral-stat">
+                  <div class="stat-value">{{ referral_summary.percentage }}%</div>
+                  <div class="stat-label">אחוז</div>
+                </div>
               </div>
               <div class="col">
-                <div class="fw-bold">{{ referral_summary.per_session_fee }}&#8362;</div>
-                <small class="text-muted">לפגישה</small>
+                <div class="referral-stat">
+                  <div class="stat-value">{{ referral_summary.per_session_fee }}&#8362;</div>
+                  <div class="stat-label">לפגישה</div>
+                </div>
               </div>
               <div class="col">
-                <div class="fw-bold">{{ referral_summary.effective_sessions }}/{{ referral_summary.total_sessions }}</div>
-                <small class="text-muted">מפגשים</small>
+                <div class="referral-stat">
+                  <div class="stat-value">{{ referral_summary.effective_sessions }}/{{ referral_summary.total_sessions }}</div>
+                  <div class="stat-label">מפגשים</div>
+                </div>
               </div>
               <div class="col">
-                <div class="fw-bold text-danger">{{ referral_summary.owed_so_far }}&#8362;</div>
-                <small class="text-muted">חוב עד כה</small>
+                <div class="referral-stat">
+                  <div class="stat-value text-danger">{{ referral_summary.owed_so_far }}&#8362;</div>
+                  <div class="stat-label">חוב עד כה</div>
+                </div>
               </div>
               <div class="col">
-                <div class="fw-bold text-success">{{ referral_summary.paid_to_broker }}&#8362;</div>
-                <small class="text-muted">שולם</small>
+                <div class="referral-stat">
+                  <div class="stat-value text-success">{{ referral_summary.paid_to_broker }}&#8362;</div>
+                  <div class="stat-label">שולם</div>
+                </div>
               </div>
               <div class="col">
-                <div class="fw-bold {% if referral_summary.unpaid_to_broker > 0 %}text-danger{% endif %}">{{ referral_summary.unpaid_to_broker }}&#8362;</div>
-                <small class="text-muted">נותר למתווך</small>
+                <div class="referral-stat {% if referral_summary.unpaid_to_broker > 0 %}border-danger{% endif %}">
+                  <div class="stat-value {% if referral_summary.unpaid_to_broker > 0 %}text-danger{% endif %}">{{ referral_summary.unpaid_to_broker }}&#8362;</div>
+                  <div class="stat-label">נותר למתווך</div>
+                </div>
               </div>
             </div>
           </div>
@@ -171,20 +188,20 @@
         {% if notes %}
         {% for n in notes|reverse %}
         <div class="d-flex mb-1 align-items-start" id="note-{{ n.id }}">
-          <div class="card shadow-sm flex-grow-1" style="max-width:90%;">
-            <div class="card-body py-1 px-2">
-              <div class="d-flex justify-content-between align-items-center" style="font-size:.75rem;">
+          <div class="note-item flex-grow-1" style="max-width:90%;">
+            <div class="card-body">
+              <div class="d-flex justify-content-between align-items-center note-meta">
                 <div>
-                  <span class="badge {{ 'bg-info' if n.note_type == 'session' else 'bg-secondary' }} me-1" style="font-size:.6rem;padding:2px 5px;">
+                  <span class="badge {{ 'bg-info' if n.note_type == 'session' else 'bg-secondary' }} note-type-badge me-1">
                     {{ 'פגישה' if n.note_type == 'session' else 'חופשי' }}
                   </span>
                   {% if n.appointment_date %}
-                  <span class="text-muted">{{ n.appointment_date }} {{ n.appointment_time or '' }}</span>
+                  <span>{{ n.appointment_date }} {{ n.appointment_time or '' }}</span>
                   {% endif %}
                 </div>
-                <span class="text-muted">{{ n.created_at[:16] }}</span>
+                <span>{{ n.created_at[:16] }}</span>
               </div>
-              <div class="note-content" id="note-text-{{ n.id }}" style="white-space:pre-wrap;font-size:.85rem;margin-top:2px;">{{ n.content }}</div>
+              <div class="note-content" id="note-text-{{ n.id }}" style="white-space:pre-wrap;margin-top:6px;">{{ n.content }}</div>
             </div>
           </div>
           <button class="btn btn-link text-danger p-0 ms-1 flex-shrink-0" style="font-size:.9rem;line-height:1;"
@@ -199,7 +216,7 @@
       </div>
 
       <!-- Input Area (bottom, chat-style) -->
-      <div class="card shadow-sm">
+      <div class="card notes-input-area">
         <div class="card-body py-2 px-3">
           <div class="row g-2 align-items-end">
             <div class="col-auto">
@@ -249,8 +266,8 @@
   <div class="tab-pane fade" id="tabEmergency" role="tabpanel">
     <div id="emergencyList">
       {% for c in emergency_contacts %}
-      <div class="card mb-2 shadow-sm" id="ec-{{ c.id }}">
-        <div class="card-body py-2 d-flex justify-content-between align-items-center">
+      <div class="card mb-2 ec-card" id="ec-{{ c.id }}">
+        <div class="card-body d-flex justify-content-between align-items-center">
           <div>
             <strong>{{ c.contact_name }}</strong>
             <span class="text-muted mx-2">|</span>
@@ -311,34 +328,34 @@
         {% if referral_summary %}
         <div class="row g-2 text-center mb-3">
           <div class="col">
-            <div class="border rounded p-2">
-              <div class="fw-bold">{{ referral_summary.per_session_fee }}&#8362;</div>
-              <small class="text-muted">לפגישה</small>
+            <div class="referral-stat">
+              <div class="stat-value">{{ referral_summary.per_session_fee }}&#8362;</div>
+              <div class="stat-label">לפגישה</div>
             </div>
           </div>
           <div class="col">
-            <div class="border rounded p-2">
-              <div class="fw-bold">{{ referral_summary.total_referral_fee }}&#8362;</div>
-              <small class="text-muted">סה"כ תיווך</small>
+            <div class="referral-stat">
+              <div class="stat-value">{{ referral_summary.total_referral_fee }}&#8362;</div>
+              <div class="stat-label">סה"כ תיווך</div>
             </div>
           </div>
           <div class="col">
-            <div class="border rounded p-2">
-              <div class="fw-bold">{{ referral_summary.effective_sessions }}/{{ referral_summary.total_sessions }}</div>
-              <small class="text-muted">מפגשים שהיו</small>
+            <div class="referral-stat">
+              <div class="stat-value">{{ referral_summary.effective_sessions }}/{{ referral_summary.total_sessions }}</div>
+              <div class="stat-label">מפגשים שהיו</div>
             </div>
           </div>
           <div class="col">
-            <div class="border rounded p-2" id="refPaidCard" style="cursor:context-menu"
+            <div class="referral-stat" id="refPaidCard" style="cursor:context-menu"
                  oncontextmenu="_showRefPaidCtx(event)" title="קליק ימני לעדכון סכום">
-              <div class="fw-bold text-success" id="refPaidVal">{{ referral_summary.paid_to_broker }}&#8362;</div>
-              <small class="text-muted">שולם למתווך</small>
+              <div class="stat-value text-success" id="refPaidVal">{{ referral_summary.paid_to_broker }}&#8362;</div>
+              <div class="stat-label">שולם למתווך</div>
             </div>
           </div>
           <div class="col">
-            <div class="border rounded p-2 {% if referral_summary.unpaid_to_broker > 0 %}border-danger{% endif %}" id="refUnpaidCard">
-              <div class="fw-bold {% if referral_summary.unpaid_to_broker > 0 %}text-danger{% endif %}" id="refUnpaidVal">{{ referral_summary.unpaid_to_broker }}&#8362;</div>
-              <small class="text-muted">נותר למתווך</small>
+            <div class="referral-stat {% if referral_summary.unpaid_to_broker > 0 %}border-danger{% endif %}" id="refUnpaidCard">
+              <div class="stat-value {% if referral_summary.unpaid_to_broker > 0 %}text-danger{% endif %}" id="refUnpaidVal">{{ referral_summary.unpaid_to_broker }}&#8362;</div>
+              <div class="stat-label">נותר למתווך</div>
             </div>
           </div>
         </div>
