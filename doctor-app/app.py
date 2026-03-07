@@ -497,6 +497,7 @@ def login():
             firebase_sync.set_username(uname)
             _init_encryption_from_password(password)
             db.encrypt_existing_patients()  # migrate plaintext PII to encrypted
+            db.encrypt_existing_notes()    # migrate plaintext notes to encrypted
 
             # Use cached license — no network wait
             _load_license_from_cache()

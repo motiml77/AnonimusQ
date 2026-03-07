@@ -585,6 +585,28 @@ def encrypt_existing_patients():
     conn.close()
 
 
+def encrypt_existing_notes():
+    """One-time migration: encrypt plaintext content in existing treatment notes."""
+    if not crypto_utils.is_ready():
+        return
+    conn = _get_conn()
+    _ensure_treatment_notes_table(conn)
+    rows = conn.execute("SELECT id, content FROM treatment_notes").fetchall()
+    migrated = 0
+    for r in rows:
+        val = r["content"] if "content" in r.keys() else ""
+        if val and not val.startswith(_ENC_PREFIX):
+            conn.execute(
+                "UPDATE treatment_notes SET content=? WHERE id=?",
+                (_encrypt_pii(val), r["id"]),
+            )
+            migrated += 1
+    if migrated:
+        conn.commit()
+        print(f"  [DB] Encrypted content for {migrated} existing treatment notes")
+    conn.close()
+
+
 # ========================
 # Patients
 # ========================
@@ -1803,13 +1825,14 @@ def add_treatment_note(patient_id: int, anonymous_id: str,
         conn = _get_conn()
         _ensure_treatment_notes_table(conn)
         now = datetime.now().isoformat()
+        encrypted_content = _encrypt_pii(content)
         cur = conn.execute(
             """INSERT INTO treatment_notes
                (patient_id, anonymous_id, appointment_date, appointment_time,
                 note_type, content, created_at, updated_at, synced)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)""",
             (patient_id, anonymous_id, appointment_date, appointment_time,
-             note_type, content, now, now),
+             note_type, encrypted_content, now, now),
         )
         conn.commit()
         note_id = cur.lastrowid
@@ -1817,6 +1840,13 @@ def add_treatment_note(patient_id: int, anonymous_id: str,
         return {"ok": True, "id": note_id}
     except Exception as e:
         return {"ok": False, "error": str(e)}
+
+
+def _decrypt_note_row(row: dict) -> dict:
+    """Decrypt the content field of a treatment note row."""
+    if "content" in row and row["content"]:
+        row["content"] = _decrypt_pii(row["content"])
+    return row
 
 
 def get_treatment_notes(patient_id: int) -> list:
@@ -1831,25 +1861,28 @@ def get_treatment_notes(patient_id: int) -> list:
         (patient_id,),
     ).fetchall()
     conn.close()
-    return [dict(r) for r in rows]
+    return [_decrypt_note_row(dict(r)) for r in rows]
 
 
 def get_treatment_note_by_id(note_id: int):
-    """Return a single treatment note by ID, or None if not found."""
+    """Return a single treatment note by ID (decrypted), or None if not found."""
     conn = _get_conn()
     _ensure_treatment_notes_table(conn)
     row = conn.execute("SELECT * FROM treatment_notes WHERE id=?", (note_id,)).fetchone()
     conn.close()
-    return dict(row) if row else None
+    if not row:
+        return None
+    return _decrypt_note_row(dict(row))
 
 
 def update_treatment_note(note_id: int, content: str) -> dict:
     try:
         conn = _get_conn()
         _ensure_treatment_notes_table(conn)
+        encrypted_content = _encrypt_pii(content)
         conn.execute(
             "UPDATE treatment_notes SET content=?, updated_at=?, synced=0 WHERE id=?",
-            (content, datetime.now().isoformat(), note_id),
+            (encrypted_content, datetime.now().isoformat(), note_id),
         )
         conn.commit()
         conn.close()
