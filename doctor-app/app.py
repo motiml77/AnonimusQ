@@ -49,6 +49,7 @@ from flask import (
     Flask,
     Response,
     flash,
+    g,
     jsonify,
     redirect,
     render_template,
@@ -317,15 +318,23 @@ def _handle_exception(e):
     return "שגיאה פנימית בשרת", 500
 
 
+# ── CSP nonce ──
+@app.before_request
+def _generate_csp_nonce():
+    g.csp_nonce = secrets.token_urlsafe(32)
+
+
 # ── CSP header ──
 @app.after_request
 def add_security_headers(response):
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "SAMEORIGIN"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    nonce = getattr(g, "csp_nonce", "")
     csp = (
         "default-src 'self'; "
-        "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+        f"script-src 'self' 'nonce-{nonce}' https://cdn.jsdelivr.net; "
+        "script-src-attr 'unsafe-inline'; "
         "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
         "img-src 'self' data:; "
         "font-src 'self' https://cdn.jsdelivr.net; "
@@ -487,6 +496,7 @@ def login():
             session["username"] = uname
             firebase_sync.set_username(uname)
             _init_encryption_from_password(password)
+            db.encrypt_existing_patients()  # migrate plaintext PII to encrypted
 
             # Use cached license — no network wait
             _load_license_from_cache()
@@ -993,7 +1003,7 @@ def api_appointments():
         if appt.get("status") == "cancelled":
             continue
         uid      = appt.get("anonymousId", "")
-        name     = uuid_map.get(uid, f"מטופל לא מזוהה ({uid[:8]}...)" if uid else "מטופל לא מזוהה")
+        name     = uuid_map.get(uid, "מטופל לא מזוהה")
         date     = appt.get("date", "")
         time_val = appt.get("time", "")
         status   = appt.get("status", "booked")
@@ -1191,8 +1201,26 @@ def patients_update(patient_id):
 @app.route("/patients/delete/<int:patient_id>", methods=["POST"])
 @login_required
 def patients_delete(patient_id):
+    # Get anonymous_id before deleting locally (needed for Firebase cleanup)
+    patient = db.get_patient_by_id(patient_id)
+    anon_id = patient["anonymous_id"] if patient else None
+
+    # Delete locally
     db.delete_patient(patient_id)
-    flash("המטופל נמחק", "success")
+
+    # Delete from Firebase in background
+    if anon_id:
+        def _bg_delete():
+            try:
+                if firebase_sync.is_connected():
+                    firebase_sync.delete_patient_full(anon_id)
+                else:
+                    db.enqueue_firebase_sync(anon_id, "delete_patient")
+            except Exception:
+                db.enqueue_firebase_sync(anon_id, "delete_patient")
+        threading.Thread(target=_bg_delete, daemon=True).start()
+
+    flash("המטופל וכל הנתונים שלו נמחקו לצמיתות", "success")
     return redirect(url_for("patients"))
 
 
@@ -1859,6 +1887,10 @@ def change_password():
                 "totalSessions": ref["total_sessions"],
                 "enabled": bool(ref["enabled"]),
             }
+
+        # ── Re-encrypt patient PII in local SQLite ──
+        if old_fernet:
+            db.reencrypt_all_patients(old_fernet, new_fernet)
 
         # ── Switch to new key locally ──
         crypto_utils.set_cached_fernet(new_fernet)
@@ -2652,6 +2684,11 @@ def _process_sync_queue():
                 )
                 _push_encrypted_patient_bg(payload)
                 success = True
+
+            elif operation == "delete_patient":
+                anon_id = op["appointment_id"]
+                res = firebase_sync.delete_patient_full(anon_id)
+                success = res.get("ok", False)
 
             elif operation == "approve":
                 res = firebase_sync.approve_appointment(payload["appointment_id"])
