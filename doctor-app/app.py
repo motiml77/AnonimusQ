@@ -430,8 +430,6 @@ def setup():
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
-    if not db.has_user():
-        return redirect(url_for("setup"))
     if session.get("authenticated"):
         return redirect(url_for("dashboard"))
     if request.method == "POST":
@@ -441,45 +439,62 @@ def login():
             return render_template("login.html")
         _record_login_attempt(client_ip)
 
-        username = request.form.get("username", "").strip()
+        username = request.form.get("username", "").strip().lower()
         password = request.form.get("password", "")
         ok, uname = db.verify_user(username, password)
+
         if ok:
-            _app_logger.info("Login successful: %s", uname)
-            # Switch to this user's isolated data directory
+            # ── Local auth succeeded ──
+            _app_logger.info("Login successful (local): %s", uname)
             db.set_current_user(uname)
             db.init_db()
             db.auto_backup()
 
-            # Local auth succeeded → login immediately
             session["authenticated"] = True
             session["username"] = uname
             firebase_sync.set_username(uname)
-
-            # ── Derive encryption key from password ──
             _init_encryption_from_password(password)
 
-            # Firebase Auth + license refresh in background (non-blocking)
+            # Firebase Auth + license refresh in background
             def _bg_firebase_auth(u, p):
                 try:
                     fb_result = firebase_auth.login(u, p)
                     if fb_result.get("ok"):
-                        pass  # Token stored server-side if needed
+                        pass
                     elif "לא קיים" in fb_result.get("error", ""):
                         reg_result = firebase_auth.register(u, p)
                         if reg_result.get("ok"):
                             firebase_auth.login(u, p)
                 except Exception:
                     pass
-                # Refresh license from Firebase (updates cache)
                 _refresh_license()
             threading.Thread(target=_bg_firebase_auth, args=(uname, password), daemon=True).start()
 
-            # Load license from cache immediately (non-blocking)
             _refresh_license()
             return redirect(url_for("dashboard"))
-        _app_logger.warning("Login failed for user: %s from %s", username, client_ip)
-        flash("שם משתמש או סיסמא שגויים", "error")
+
+        # ── No local match — try Firebase (user may exist on another computer) ──
+        fb_result = firebase_auth.login(username, password)
+        if fb_result.get("ok"):
+            _app_logger.info("Login successful (Firebase, new local): %s", username)
+            # Create local user from Firebase credentials
+            result = db.setup_user(username, password)
+            if result["ok"]:
+                db.init_db()
+                session["authenticated"] = True
+                session["username"] = username
+                firebase_sync.set_username(username)
+                _init_encryption_from_password(password)
+                _refresh_license()
+                return redirect(url_for("dashboard"))
+            flash(result.get("error", "שגיאה ביצירת משתמש מקומי"), "error")
+        elif fb_result.get("error") == "offline":
+            # No local user + no internet → can't verify
+            _app_logger.warning("Login failed for user: %s (no local + offline)", username)
+            flash("שם משתמש או סיסמא שגויים", "error")
+        else:
+            _app_logger.warning("Login failed for user: %s from %s", username, client_ip)
+            flash("שם משתמש או סיסמא שגויים", "error")
     return render_template("login.html", has_user=db.has_user())
 
 
