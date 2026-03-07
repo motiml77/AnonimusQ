@@ -651,16 +651,22 @@ def _migrate_v1_to_v2(password: str):
     verification_token = crypto_utils.make_verification_token(new_fernet)
 
     # ── Re-encrypt treatment notes ──
+    _ENC_PFX = "ENC:"
     all_notes = db.get_all_treatment_notes_for_sync()
     notes_for_firebase = []
     for note in all_notes:
-        content = note["content"]
-        # Try decrypting with old key (notes are stored encrypted in SQLite)
-        plaintext = crypto_utils.decrypt_with(old_fernet, content)
-        if plaintext == "[שגיאת פענוח]":
-            plaintext = content  # Wasn't encrypted, use as-is
-        # Re-encrypt with new key
-        new_encrypted = crypto_utils.encrypt(plaintext)
+        raw = note["content"] or ""
+        # Strip ENC: prefix before decrypting with old key
+        if raw.startswith(_ENC_PFX) and old_fernet:
+            plaintext = crypto_utils.decrypt_with(old_fernet, raw[len(_ENC_PFX):])
+            if plaintext == "[שגיאת פענוח]":
+                plaintext = raw  # can't decrypt — keep as-is
+        elif raw.startswith(_ENC_PFX):
+            plaintext = raw  # no old key — keep as-is
+        else:
+            plaintext = raw  # plaintext
+        # Re-encrypt with new key + add ENC: prefix
+        new_encrypted = _ENC_PFX + crypto_utils.encrypt(plaintext)
         db.update_treatment_note_content(note["id"], new_encrypted)
         notes_for_firebase.append({
             "anonymous_id": note["anonymous_id"],
@@ -1776,166 +1782,217 @@ def change_password():
 
     if not db.verify_current_password(old_pw):
         flash("הסיסמא הנוכחית שגויה", "error")
-    elif len(new_pw) < 6:
+        return redirect(url_for("settings"))
+    if len(new_pw) < 6:
         flash("הסיסמא החדשה חייבת להכיל לפחות 6 תווים", "error")
-    elif new_pw != confirm:
+        return redirect(url_for("settings"))
+    if new_pw != confirm:
         flash("הסיסמאות החדשות אינן תואמות", "error")
-    else:
-        # Require internet: first verify Firebase login works
-        uname = session.get("username", "")
-        id_token = session.get("firebase_id_token")
+        return redirect(url_for("settings"))
 
-        # Try to get a valid Firebase token
-        if not id_token:
-            login_result = firebase_auth.login(uname, old_pw)
-            if login_result["ok"]:
-                id_token = login_result.get("idToken", "")
-            elif login_result.get("error") == "offline":
-                flash("שינוי סיסמא דורש חיבור לאינטרנט. התחבר לאינטרנט ונסה שוב.", "error")
-                return redirect(url_for("settings"))
+    uname = session.get("username", "")
 
-        if not id_token:
+    # ================================================================
+    # STEP 1: Require internet — get a valid Firebase token
+    # ================================================================
+    id_token = session.get("firebase_id_token")
+    if not id_token:
+        login_result = firebase_auth.login(uname, old_pw)
+        if login_result["ok"]:
+            id_token = login_result.get("idToken", "")
+        elif login_result.get("error") == "offline":
             flash("שינוי סיסמא דורש חיבור לאינטרנט. התחבר לאינטרנט ונסה שוב.", "error")
             return redirect(url_for("settings"))
+    if not id_token:
+        flash("שינוי סיסמא דורש חיבור לאינטרנט. התחבר לאינטרנט ונסה שוב.", "error")
+        return redirect(url_for("settings"))
 
-        # ── Update Firebase Auth password FIRST (before re-encrypting) ──
+    # ================================================================
+    # STEP 2: Create local backup BEFORE any changes
+    # ================================================================
+    import shutil
+    try:
+        backup_path = db.DB_PATH + ".pre_password_change"
+        shutil.copy2(db.DB_PATH, backup_path)
+        _app_logger.info("Pre-password-change backup: %s", backup_path)
+    except Exception as e:
+        _app_logger.warning("Backup before password change failed: %s", e)
+
+    # ================================================================
+    # STEP 3: Flush sync queue — push ALL pending operations to Firebase
+    # ================================================================
+    try:
+        _process_sync_queue()
+        _app_logger.info("Sync queue flushed before password change")
+    except Exception as e:
+        _app_logger.warning("Sync queue flush failed: %s", e)
+
+    # ================================================================
+    # STEP 4: Read & decrypt ALL data using the CURRENT (old) key
+    #         Do this BEFORE changing anything so we have clean plaintext.
+    # ================================================================
+    _ENC_PFX = "ENC:"
+    old_fernet = crypto_utils.get_cached_fernet()
+
+    # 4a: Treatment notes — decrypt from ENC: prefixed ciphertext
+    all_notes_raw = db.get_all_treatment_notes_for_sync()  # raw from SQLite
+    notes_plaintext = []
+    for note in all_notes_raw:
+        raw = note["content"] or ""
+        if raw.startswith(_ENC_PFX) and old_fernet:
+            pt = crypto_utils.decrypt_with(old_fernet, raw[len(_ENC_PFX):])
+            if pt == "[שגיאת פענוח]":
+                pt = raw  # can't decrypt — preserve as-is
+        else:
+            pt = raw
+        notes_plaintext.append({**note, "_plaintext": pt})
+
+    # 4b: Patients — already returns decrypted via _decrypt_patient_row
+    all_patients = db.get_all_patients_for_sync()
+
+    # 4c: Emergency contacts (plaintext in SQLite)
+    all_ecs = db.get_all_emergency_contacts_for_sync()
+
+    # 4d: Referral agreements (plaintext in SQLite)
+    all_refs = db.get_all_referral_agreements_for_sync()
+
+    _app_logger.info(
+        "Data read before password change: %d notes, %d patients, %d contacts, %d referrals",
+        len(notes_plaintext), len(all_patients), len(all_ecs), len(all_refs),
+    )
+
+    # ================================================================
+    # STEP 5: Change Firebase Auth password
+    # ================================================================
+    try:
+        firebase_sync.set_password_change_flag(True)
+    except Exception:
+        pass
+
+    fb_result = firebase_auth.change_password(id_token, new_pw)
+    if not fb_result["ok"]:
         try:
-            firebase_sync.set_password_change_flag(True)
+            firebase_sync.set_password_change_flag(False)
         except Exception:
             pass
+        if "אין חיבור" in fb_result.get("error", ""):
+            flash("שינוי סיסמא דורש חיבור לאינטרנט. התחבר לאינטרנט ונסה שוב.", "error")
+        else:
+            flash(f"שגיאה בשינוי סיסמא: {fb_result['error']}", "error")
+        return redirect(url_for("settings"))
 
-        fb_result = firebase_auth.change_password(id_token, new_pw)
-        if not fb_result["ok"]:
-            try:
-                firebase_sync.set_password_change_flag(False)
-            except Exception:
-                pass
-            if "אין חיבור" in fb_result.get("error", ""):
-                flash("שינוי סיסמא דורש חיבור לאינטרנט. התחבר לאינטרנט ונסה שוב.", "error")
-            else:
-                flash(f"שגיאה בשינוי סיסמא: {fb_result['error']}", "error")
-            return redirect(url_for("settings"))
+    # ================================================================
+    # STEP 6: Firebase password changed — generate new encryption key
+    # ================================================================
+    db.set_password(new_pw)
+    new_login = firebase_auth.login(uname, new_pw)
+    if new_login["ok"]:
+        session["firebase_id_token"] = new_login.get("idToken", "")
 
-        # Firebase Auth password changed successfully → now re-encrypt everything
-        db.set_password(new_pw)
-        new_login = firebase_auth.login(uname, new_pw)
-        if new_login["ok"]:
-            session["firebase_id_token"] = new_login.get("idToken", "")
+    _save_recovery_password(new_pw)
 
-        # ── Update recovery token in Firebase for admin password recovery ──
-        _save_recovery_password(new_pw)
+    new_salt = crypto_utils.generate_salt()
+    new_salt_b64 = crypto_utils.salt_to_b64(new_salt)
+    new_fernet = crypto_utils.create_fernet(new_pw, new_salt)
+    new_verification_token = crypto_utils.make_verification_token(new_fernet)
 
-        # ── Save old Fernet for re-encryption ──
-        old_fernet = crypto_utils.get_cached_fernet()
+    # ================================================================
+    # STEP 7: Re-encrypt ALL data locally with the new key
+    # ================================================================
 
-        # ── Generate new encryption key from new password ──
-        new_salt = crypto_utils.generate_salt()
-        new_salt_b64 = crypto_utils.salt_to_b64(new_salt)
-        new_fernet = crypto_utils.create_fernet(new_pw, new_salt)
-        new_verification_token = crypto_utils.make_verification_token(new_fernet)
+    # 7a: Treatment notes — encrypt plaintext with new key + ENC: prefix
+    notes_for_firebase = []
+    for note in notes_plaintext:
+        new_encrypted = _ENC_PFX + crypto_utils.encrypt_with(new_fernet, note["_plaintext"])
+        db.update_treatment_note_content(note["id"], new_encrypted)
+        notes_for_firebase.append({
+            "anonymous_id": note["anonymous_id"],
+            "note_id": note["id"],
+            "encryptedContent": new_encrypted,
+            "noteType": note["note_type"],
+            "appointmentDate": note["appointment_date"],
+            "appointmentTime": note["appointment_time"],
+            "createdAt": note["created_at"],
+            "updatedAt": note["updated_at"],
+        })
 
-        # ── Re-encrypt treatment notes (stored encrypted in SQLite) ──
-        all_notes = db.get_all_treatment_notes_for_sync()
-        notes_for_firebase = []
-        for note in all_notes:
-            # Decrypt with OLD key (still cached)
-            plaintext = crypto_utils.decrypt_with(old_fernet, note["content"]) if old_fernet else note["content"]
-            if plaintext == "[שגיאת פענוח]":
-                plaintext = note["content"]
-            # Re-encrypt with new key
-            new_encrypted = crypto_utils.encrypt_with(new_fernet, plaintext)
-            db.update_treatment_note_content(note["id"], new_encrypted)
-            notes_for_firebase.append({
-                "anonymous_id": note["anonymous_id"],
-                "note_id": note["id"],
-                "encryptedContent": new_encrypted,
-                "noteType": note["note_type"],
-                "appointmentDate": note["appointment_date"],
-                "appointmentTime": note["appointment_time"],
-                "createdAt": note["created_at"],
-                "updatedAt": note["updated_at"],
+    # 7b: Re-encrypt patient PII in local SQLite (ENC: prefix handled inside)
+    if old_fernet:
+        db.reencrypt_all_patients(old_fernet, new_fernet)
+
+    # 7c: Prepare patients for Firebase (already decrypted in step 4b)
+    patients_for_firebase = []
+    for p in all_patients:
+        patients_for_firebase.append({
+            "anonymous_id": p["anonymous_id"],
+            "encryptedName": crypto_utils.encrypt_with(new_fernet, p["name"] or ""),
+            "encryptedPhone": crypto_utils.encrypt_with(new_fernet, p["phone"] or ""),
+            "encryptedNotes": crypto_utils.encrypt_with(new_fernet, p["notes"] or ""),
+            "price": float(p.get("price", 0)),
+            "isAnonymous": bool(p.get("is_anonymous", 0)),
+            "active": bool(p.get("active", 1)),
+            "registered": True,
+        })
+
+    # 7d: Encrypt emergency contacts for Firebase
+    ec_by_patient = {}
+    for ec in all_ecs:
+        anon_id = ec["anonymous_id"]
+        if anon_id not in ec_by_patient:
+            ec_by_patient[anon_id] = []
+        ec_by_patient[anon_id].append({
+            "encryptedName": crypto_utils.encrypt_with(new_fernet, ec["contact_name"]),
+            "encryptedPhone": crypto_utils.encrypt_with(new_fernet, ec["contact_phone"]),
+        })
+
+    # 7e: Encrypt referral broker names for Firebase
+    refs_by_patient = {}
+    for ref in all_refs:
+        anon_id = ref["anonymous_id"]
+        refs_by_patient[anon_id] = {
+            "encryptedBrokerName": crypto_utils.encrypt_with(new_fernet, ref["broker_name"]),
+            "percentage": ref["percentage"],
+            "totalSessions": ref["total_sessions"],
+            "enabled": bool(ref["enabled"]),
+        }
+
+    # ================================================================
+    # STEP 8: Switch to new key locally + clear old sync queue
+    # ================================================================
+    db.clear_data_sync_operations()
+    crypto_utils.set_cached_fernet(new_fernet)
+    db.save_encryption_metadata(new_salt_b64, version=2)
+
+    # ================================================================
+    # STEP 9: Push ALL re-encrypted data to Firebase SYNCHRONOUSLY
+    #         (not in background — must complete before responding)
+    # ================================================================
+    from datetime import datetime as _dt
+    try:
+        if firebase_sync.is_connected():
+            firebase_sync.save_encryption_settings({
+                "pbkdf2Salt": new_salt_b64,
+                "encryptionVersion": 2,
+                "keyVerificationToken": new_verification_token,
+                "migratedAt": _dt.now().isoformat(),
+                "passwordChangeInProgress": False,
             })
+            if patients_for_firebase:
+                firebase_sync.push_all_encrypted_patients(patients_for_firebase)
+            if notes_for_firebase:
+                firebase_sync.push_all_encrypted_notes(notes_for_firebase)
+            if ec_by_patient:
+                firebase_sync.push_all_encrypted_emergency_contacts(ec_by_patient)
+            if refs_by_patient:
+                firebase_sync.push_all_encrypted_referrals(refs_by_patient)
+            _app_logger.info("Password change: all re-encrypted data pushed to Firebase")
+    except Exception as e:
+        _app_logger.error("Password change: Firebase push error: %s", e)
+        # Data is safe locally — will sync on next login
+        flash("הסיסמא שונתה, אך העלאה לפיירבייס נכשלה. הנתונים ישוחזרו בהתחברות הבאה.", "warning")
+        return redirect(url_for("settings"))
 
-        # ── Encrypt patient data (plaintext locally) ──
-        all_patients = db.get_all_patients_for_sync()
-        patients_for_firebase = []
-        for p in all_patients:
-            patients_for_firebase.append({
-                "anonymous_id": p["anonymous_id"],
-                "encryptedName": crypto_utils.encrypt_with(new_fernet, p["name"] or ""),
-                "encryptedPhone": crypto_utils.encrypt_with(new_fernet, p["phone"] or ""),
-                "encryptedNotes": crypto_utils.encrypt_with(new_fernet, p["notes"] or ""),
-                "price": float(p.get("price", 0)),
-                "isAnonymous": bool(p.get("is_anonymous", 0)),
-                "active": bool(p.get("active", 1)),
-                "registered": True,
-            })
-
-        # ── Encrypt emergency contacts (plaintext locally) ──
-        all_ecs = db.get_all_emergency_contacts_for_sync()
-        ec_by_patient = {}
-        for ec in all_ecs:
-            anon_id = ec["anonymous_id"]
-            if anon_id not in ec_by_patient:
-                ec_by_patient[anon_id] = []
-            ec_by_patient[anon_id].append({
-                "encryptedName": crypto_utils.encrypt_with(new_fernet, ec["contact_name"]),
-                "encryptedPhone": crypto_utils.encrypt_with(new_fernet, ec["contact_phone"]),
-            })
-
-        # ── Encrypt referral broker names (plaintext locally) ──
-        all_refs = db.get_all_referral_agreements_for_sync()
-        refs_by_patient = {}
-        for ref in all_refs:
-            anon_id = ref["anonymous_id"]
-            refs_by_patient[anon_id] = {
-                "encryptedBrokerName": crypto_utils.encrypt_with(new_fernet, ref["broker_name"]),
-                "percentage": ref["percentage"],
-                "totalSessions": ref["total_sessions"],
-                "enabled": bool(ref["enabled"]),
-            }
-
-        # ── Re-encrypt patient PII in local SQLite ──
-        if old_fernet:
-            db.reencrypt_all_patients(old_fernet, new_fernet)
-
-        # ── Clear redundant sync queue entries ──
-        # Password change re-pushes ALL data to Firebase, so pending
-        # patient/note/contact operations are now redundant.
-        db.clear_data_sync_operations()
-
-        # ── Switch to new key locally ──
-        crypto_utils.set_cached_fernet(new_fernet)
-        db.save_encryption_metadata(new_salt_b64, version=2)
-
-        # ── Push re-encrypted data to Firebase in background ──
-        from datetime import datetime as _dt
-
-        def _bg_push_reencrypted():
-            try:
-                if not firebase_sync.is_connected():
-                    return
-                firebase_sync.save_encryption_settings({
-                    "pbkdf2Salt": new_salt_b64,
-                    "encryptionVersion": 2,
-                    "keyVerificationToken": new_verification_token,
-                    "migratedAt": _dt.now().isoformat(),
-                    "passwordChangeInProgress": False,
-                })
-                if patients_for_firebase:
-                    firebase_sync.push_all_encrypted_patients(patients_for_firebase)
-                if notes_for_firebase:
-                    firebase_sync.push_all_encrypted_notes(notes_for_firebase)
-                if ec_by_patient:
-                    firebase_sync.push_all_encrypted_emergency_contacts(ec_by_patient)
-                if refs_by_patient:
-                    firebase_sync.push_all_encrypted_referrals(refs_by_patient)
-            except Exception as e:
-                print(f"[Encryption] password change push error: {e}")
-
-        threading.Thread(target=_bg_push_reencrypted, daemon=True).start()
-        flash("הסיסמא שונתה בהצלחה וכל הנתונים הוצפנו מחדש", "success")
-
+    flash("הסיסמא שונתה בהצלחה וכל הנתונים הוצפנו מחדש", "success")
     return redirect(url_for("settings"))
 
 
@@ -2511,6 +2568,16 @@ def _open_app_window():
     )
     os.makedirs(_browser_profile, exist_ok=True)
 
+    # Clean up stale lock files that can force delegation even with a
+    # unique user-data-dir (left behind by previous crashes / unclean exits).
+    for lock_name in ("SingletonLock", "SingletonSocket", "SingletonCookie"):
+        lock_path = os.path.join(_browser_profile, lock_name)
+        try:
+            if os.path.exists(lock_path):
+                os.remove(lock_path)
+        except OSError:
+            pass
+
     # Detect screen size for centering
     try:
         import ctypes
@@ -2536,7 +2603,8 @@ def _open_app_window():
         "--disable-renderer-backgrounding",
     ]
 
-    # Suppress any helper-process console windows
+    # Suppress helper-process console windows while keeping
+    # the main browser window visible.
     _si = subprocess.STARTUPINFO()
     _si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
     _si.wShowWindow = 1  # SW_SHOWNORMAL for main window
@@ -2561,17 +2629,20 @@ def _open_app_window():
             print(f"  פתיחת חלון תוכנה דרך: {os.path.basename(browser)}")
             # Wait briefly to see if the process stays alive.
             # If Edge/Chrome is already running it may "delegate" to
-            # the existing instance and exit immediately — in that case
-            # we fall through to the default-browser fallback below.
+            # the existing instance and exit immediately.
             try:
                 proc.wait(timeout=5)
-                # Process exited within 5 s → delegation happened
-                print("  הדפדפן העביר לחלון קיים – פותח בדפדפן ברירת מחדל")
+                # Process exited within 5 s → delegation happened.
+                # The URL was already sent to the running browser in
+                # --app mode.  Do NOT open webbrowser.open() because
+                # that would create a second, regular tab.
+                print("  הדפדפן העביר לחלון קיים (app mode)")
+                return None
             except subprocess.TimeoutExpired:
                 # Still running after 5 s → it's our own process, track it
                 return proc
 
-    # Fallback – open in default browser and keep alive via Flask thread
+    # Fallback – no Edge or Chrome found; open in default browser
     import webbrowser
     print("  פותח בדפדפן ברירת מחדל")
     webbrowser.open(url)
